@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Trophy, CheckCircle2, Play, Archive, Plus, X, Pencil, Trash2, Search, Gamepad2, ImageUp, FileUp, Download, Images, Upload, Clock, LogOut, Lock, Wrench, ChevronDown, ChevronLeft, ChevronRight, Check, RefreshCw } from "lucide-react";
+import { Trophy, CheckCircle2, Play, Archive, Plus, X, Pencil, Trash2, Search, Gamepad2, ImageUp, FileUp, Download, Images, Upload, Clock, LogOut, Wrench, ChevronDown, ChevronLeft, ChevronRight, Check, RefreshCw } from "lucide-react";
 
 const SUPABASE_URL = "https://ixwxxgrwafglumgelapt.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml4d3h4Z3J3YWZnbHVtZ2VsYXB0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5MDMwMDksImV4cCI6MjEwMzQ3OTAwOX0.zjjE9RnWUvAkBVPqG1_9rCkoKvsVvubd7VjvhSoOixk";
@@ -1474,51 +1474,61 @@ export default function AchievementShelf() {
 
   if (sessionChecking) {
     return (
-      <div style={{ fontFamily: "'Archivo', sans-serif", background: "#0E0E10", minHeight: "300px", borderRadius: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#8A8A90", fontSize: "13px" }}>
-        carregando...
+      <div style={{ fontFamily: "'Archivo', sans-serif", background: "#0E0E10", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#A2A2A8", fontSize: "13px", fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+        Carregando...
       </div>
     );
   }
 
   if (!session) {
     return (
-      <div style={{ fontFamily: "'Archivo', sans-serif", background: "#0E0E10", minHeight: "500px", padding: "28px 24px", color: "#F2F2EE", borderRadius: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <form onSubmit={handleLogin} style={{ width: "100%", maxWidth: "320px", background: "#16161A", border: "1px solid #2A2A2E", borderRadius: 0, padding: "28px 24px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-            <Lock size={16} color="#D7FF3A" />
-            <h1 style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 700, fontSize: "18px", margin: 0 }}>Estante de Conquistas</h1>
+      <div style={{ fontFamily: "'Archivo', sans-serif", background: "#0E0E10", minHeight: "100vh", color: "#F2F2EE", display: "flex", alignItems: "center", justifyContent: "center", padding: "32px 16px" }}>
+        <style>{PLACAR_CSS}</style>
+        <form onSubmit={handleLogin} style={{ width: "100%", maxWidth: "400px", display: "flex", flexDirection: "column", gap: "28px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px", paddingBottom: "24px", borderBottom: "1px solid #2A2A2E" }}>
+            <span className="placar-marca" style={{ fontSize: "clamp(72px, 22vw, 104px)", lineHeight: 0.85 }}>Estante</span>
+            <span style={{ fontSize: "14px", color: "#A2A2A8", lineHeight: 1.5 }}>Seus jogos e conquistas num placar só.</span>
           </div>
-          <p style={{ color: "#A2A2A8", fontSize: "12px", margin: "4px 0 20px" }}>Faça login pra acessar sua estante</p>
-          <label style={{ display: "block", fontSize: "12px", color: "#A2A2A8", marginBottom: "6px" }}>Email</label>
-          <input
-            type="email"
-            value={loginEmail}
-            onChange={(e) => setLoginEmail(e.target.value)}
-            required
-            style={{ ...inputStyle, marginBottom: "12px" }}
-          />
-          <label style={{ display: "block", fontSize: "12px", color: "#A2A2A8", marginBottom: "6px" }}>Senha</label>
-          <input
-            type="password"
-            value={loginPassword}
-            onChange={(e) => setLoginPassword(e.target.value)}
-            required
-            style={{ ...inputStyle, marginBottom: "16px" }}
-          />
-          {loginError && <p style={{ color: "#FF7A5C", fontSize: "12px", margin: "0 0 14px" }}>{loginError}</p>}
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <label htmlFor="login-email" className="placar-label">E-mail</label>
+            <input
+              id="login-email"
+              type="email"
+              autoComplete="email"
+              value={loginEmail}
+              onChange={(e) => setLoginEmail(e.target.value)}
+              required
+              className="placar-campo"
+              style={{ height: "48px", fontSize: "15px", padding: "0 14px" }}
+            />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <label htmlFor="login-senha" className="placar-label">Senha</label>
+            <input
+              id="login-senha"
+              type="password"
+              autoComplete="current-password"
+              value={loginPassword}
+              onChange={(e) => setLoginPassword(e.target.value)}
+              required
+              className="placar-campo"
+              style={{ height: "48px", fontSize: "15px", padding: "0 14px" }}
+            />
+          </div>
+          {loginError && <p role="alert" style={{ color: "#FF7A5C", fontSize: "13px", margin: 0 }}>{loginError}</p>}
           <button
             type="submit"
             disabled={loginBusy}
-            style={{ width: "100%", padding: "10px", borderRadius: 0, border: "none", background: loginBusy ? "#2A2A2E" : "#D7FF3A", color: loginBusy ? "#8A8A90" : "#0E0E10", cursor: loginBusy ? "default" : "pointer", fontSize: "13px", fontWeight: 600 }}
+            className="placar-btn"
+            style={{ height: "52px", justifyContent: "center", border: "none", background: loginBusy ? "#2A2A2E" : "#D7FF3A", color: loginBusy ? "#A2A2A8" : "#0E0E10", cursor: loginBusy ? "default" : "pointer", fontSize: "14px", fontWeight: 800 }}
           >
-            {loginBusy ? "entrando..." : "Entrar"}
+            {loginBusy ? "Entrando..." : "Entrar"}
           </button>
         </form>
       </div>
     );
   }
 
-  const steamGamesCount = games.filter((g) => g.platform === "steam").length;
   const pctConquistado = pointsStats.totalPossible > 0 ? (pointsStats.totalEarned / pointsStats.totalPossible) * 100 : 0;
   const platformCounts = games.reduce((acc, g) => {
     const fam = platformFamily(g.platform);
