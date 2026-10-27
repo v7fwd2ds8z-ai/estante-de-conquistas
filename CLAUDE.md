@@ -30,8 +30,18 @@ Repositório: `v7fwd2ds8z-ai/estante-de-conquistas` (usuário do GitHub: `v7fwd2
   - RLS: leitura e escrita só para usuário autenticado.
   - Sessão em `localStorage` (`estante_conquistas_session`), renovada a cada 30 minutos.
 - **IGDB** (capas, metadados, screenshots) pela Edge Function `hyper-api` (Deno), que usa credenciais da Twitch. Chamada em `searchIgdb`.
+- **Steam** pela Edge Function `steam-sync` (código em `supabase/functions/steam-sync/index.ts`, publicada no Supabase à parte do deploy do Pages). Detalhes em "Sincronização da Steam".
 - Imagens passam pelo proxy `images.weserv.nl` (`displayCoverUrl`).
 - O plano gratuito do Supabase pausa após ~7 dias sem uso. O ping a cada 3 dias fica no repositório separado `v7fwd2ds8z-ai/manter-supabase` (workflow `keep-supabase-awake.yml`), não neste. Em out/2026 o projeto pausou mesmo com o ping passando; se voltar a acontecer, revisar o tipo de ping.
+
+## Sincronização da Steam
+- A função usa o secret `STEAM_API_KEY` do Supabase e exige o token da sessão (não o anon). Ela só lê a Steam; quem faz o merge e salva é o app, com a sessão do usuário.
+- Ações: `owned` (resolve link/ID do perfil e lista a biblioteca) e `achievements` (até 20 appids por chamada; conquistas em pt-BR, ícone e % global).
+- Vínculo jogo ↔ Steam em `metadata.steam` (`appid`, `playtimeMinutes`, `lastPlayed`, `syncedAt`). Quem reescreve o `metadata` (busca de capa no IGDB, edição) precisa preservar `steam`. O bloco de informações do IGDB no detalhe só aparece com `metadata.source`.
+- Conquistas da Steam guardam `steamApiName`, `icon` e `rarity`; 15 pontos cada. Nunca desmarca conquista feita, nem sobrescreve nome/descrição digitados.
+- Status: jogo existente só muda para `100` (quando tudo está feito); jogo novo entra como `100`, `jogando` (jogado nos últimos 30 dias) ou `historico`. Jogo nunca jogado não entra.
+- Modal "Ferramentas → Sincronizar Steam" (lê a biblioteca, mostra a prévia e pergunta se adiciona jogos novos). Ao abrir o app, se há perfil salvo (`localStorage`) e a última sincronização tem mais de 12h, roda sozinha sem adicionar jogos novos. Só busca conquistas de jogos jogados desde a última sincronização.
+- Publicar a função: Supabase → Edge Functions → criar `steam-sync` com o conteúdo do arquivo (ou `supabase functions deploy steam-sync`). A chave da Steam vem de steamcommunity.com/dev/apikey e o próprio Lucas cadastra em Edge Functions → Secrets.
 
 ## Segurança — importante
 - A chave `anon` pode ficar no código do cliente.

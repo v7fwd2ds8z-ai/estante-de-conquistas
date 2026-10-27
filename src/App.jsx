@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Trophy, CheckCircle2, Play, Archive, Plus, X, Pencil, Trash2, Search, Gamepad2, ImageUp, FileUp, Download, Images, Upload, Clock, LogOut, Lock, Wrench, ChevronDown } from "lucide-react";
+import { Trophy, CheckCircle2, Play, Archive, Plus, X, Pencil, Trash2, Search, Gamepad2, ImageUp, FileUp, Download, Images, Upload, Clock, LogOut, Lock, Wrench, ChevronDown, RefreshCw } from "lucide-react";
 
 const SUPABASE_URL = "https://ixwxxgrwafglumgelapt.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml4d3h4Z3J3YWZnbHVtZ2VsYXB0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5MDMwMDksImV4cCI6MjEwMzQ3OTAwOX0.zjjE9RnWUvAkBVPqG1_9rCkoKvsVvubd7VjvhSoOixk";
@@ -101,6 +101,177 @@ const searchIgdb = async (title) => {
   const data = await res.json();
   if (!res.ok || data.error) throw new Error(data.error || `Busca no IGDB falhou (${res.status})`);
   return data.matches || [];
+};
+
+// Sincronização com a Steam pela Edge Function "steam-sync" (a chave da Steam fica só no
+// Supabase). Diferente do IGDB, aqui vai o token da sessão: só quem está logado usa a chave.
+const STEAM_SYNC_URL = `${SUPABASE_URL}/functions/v1/steam-sync`;
+const STEAM_PROFILE_STORAGE_KEY = "estante_steam_perfil";
+const STEAM_LAST_SYNC_STORAGE_KEY = "estante_steam_ultima_sync";
+const STEAM_AUTO_SYNC_MS = 12 * 60 * 60 * 1000;
+const STEAM_BATCH_SIZE = 20;
+const STEAM_POINTS = 15;
+const STEAM_RECENT_DAYS = 30;
+
+const callSteamSync = async (accessToken, payload) => {
+  const res = await fetch(STEAM_SYNC_URL, {
+    method: "POST",
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 404 && !data.error) throw new Error("A função steam-sync ainda não foi publicada no Supabase.");
+  if (!res.ok || data.error) throw new Error(data.error || data.message || `Sincronização com a Steam falhou (${res.status})`);
+  return data;
+};
+
+const steamCoverUrl = (appid) => `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg`;
+
+// Data local (YYYY-MM-DD) a partir do unix time da Steam.
+const unixToIsoDate = (t) => {
+  if (!t) return "";
+  const d = new Date(t * 1000);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+const latestDoneAt = (achievements) =>
+  achievements.reduce((max, a) => (a.done && a.doneAt && a.doneAt > max ? a.doneAt : max), "");
+
+// Junta as conquistas da Steam com as que o jogo já tem. Casa pelo apiname da Steam e,
+// na primeira vez, pelo nome. Como no mergeAchievements, nunca desmarca uma conquista feita
+// e mantém nome/descrição/pontos que já tinham sido digitados à mão.
+const mergeSteamAchievements = (current, steamList) => {
+  const working = [...current];
+  let newlyDone = 0;
+  steamList.forEach((s, i) => {
+    const doneAt = s.achieved ? unixToIsoDate(s.unlocktime) : "";
+    let idx = working.findIndex((a) => a.steamApiName === s.apiname);
+    if (idx === -1) idx = working.findIndex((a) => !a.steamApiName && normalizeForMatch(a.name) === normalizeForMatch(s.name));
+    if (idx !== -1) {
+      const a = working[idx];
+      if (s.achieved && !a.done) newlyDone++;
+      working[idx] = {
+        ...a,
+        steamApiName: s.apiname,
+        name: a.name || s.name,
+        description: a.description || s.description,
+        points: Number(a.points) || STEAM_POINTS,
+        icon: s.icon || a.icon || "",
+        rarity: s.percent ?? a.rarity ?? null,
+        done: a.done || s.achieved,
+        doneAt: a.doneAt || doneAt,
+      };
+    } else {
+      if (s.achieved) newlyDone++;
+      working.push({
+        id: `a_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`,
+        steamApiName: s.apiname,
+        name: s.name,
+        description: s.description || "",
+        points: STEAM_POINTS,
+        dlc: "",
+        icon: s.icon || "",
+        rarity: s.percent ?? null,
+        done: s.achieved,
+        doneAt,
+      });
+    }
+  });
+  return { achievements: working, newlyDone };
+};
+
+// Cruza a biblioteca da Steam com a estante. Um jogo da estante (plataforma Steam) casa
+// pelo appid já vinculado ou, na primeira vez, pelo título. Jogos da Steam que não estão na
+// estante só entram se já foram jogados. Só busca conquistas de quem tem estatísticas na
+// Steam e foi jogado desde a última sincronização (ou nunca foi sincronizado).
+const planSteamSync = (games, owned) => {
+  const steamGames = games.filter((g) => g.platform === "steam");
+  const byAppid = new Map();
+  steamGames.forEach((g) => {
+    if (g.metadata?.steam?.appid) byAppid.set(g.metadata.steam.appid, g);
+  });
+  const usedIds = new Set();
+  const items = [];
+  owned.forEach((o) => {
+    let match = byAppid.get(o.appid);
+    if (!match) {
+      const norm = normalizeForMatch(o.name);
+      match = steamGames.find((g) => !usedIds.has(g.id) && !g.metadata?.steam?.appid && normalizeForMatch(g.title) === norm);
+    }
+    if (match) usedIds.add(match.id);
+    if (!match && o.playtimeMinutes === 0) return;
+    const syncedAt = match?.metadata?.steam?.syncedAt || 0;
+    const needsAchievements = o.hasStats && (!syncedAt || o.lastPlayed * 1000 > syncedAt);
+    items.push({ owned: o, match: match || null, needsAchievements });
+  });
+  return {
+    items,
+    matchedCount: items.filter((i) => i.match).length,
+    newCount: items.filter((i) => !i.match).length,
+  };
+};
+
+// Monta os jogos a salvar. Status de jogo existente só muda para "100" quando todas as
+// conquistas estão feitas; qualquer outro status escolhido à mão fica como está.
+const applySteamSync = (plan, achievementsByAppid, { addNew, now }) => {
+  const toSave = [];
+  let added = 0;
+  let updated = 0;
+  let newlyDone = 0;
+  plan.items.forEach(({ owned, match }) => {
+    if (!match && !addNew) return;
+    const steamList = achievementsByAppid.get(owned.appid);
+    const base = match || {
+      id: `steam_${owned.appid}`,
+      title: owned.name,
+      platform: "steam",
+      status: "historico",
+      notes: "",
+      cover: steamCoverUrl(owned.appid),
+      completedAt: "",
+      startedAt: "",
+      achievements: [],
+      metadata: null,
+      createdAt: now,
+    };
+    const merged = steamList ? mergeSteamAchievements(base.achievements || [], steamList) : { achievements: base.achievements || [], newlyDone: 0 };
+    const achievements = merged.achievements;
+    const allDone = achievements.length > 0 && achievements.every((a) => a.done);
+
+    let status = base.status;
+    let completedAt = base.completedAt;
+    if (allDone && status !== "100") {
+      status = "100";
+      completedAt = completedAt || latestDoneAt(achievements);
+    } else if (!match) {
+      const recent = owned.lastPlayed && now - owned.lastPlayed * 1000 < STEAM_RECENT_DAYS * 24 * 60 * 60 * 1000;
+      status = recent ? "jogando" : "historico";
+    }
+
+    const prevSteam = base.metadata?.steam;
+    const steam = {
+      appid: owned.appid,
+      playtimeMinutes: owned.playtimeMinutes,
+      lastPlayed: owned.lastPlayed,
+      syncedAt: steamList ? now : prevSteam?.syncedAt || 0,
+    };
+    const changed =
+      !match ||
+      merged.newlyDone > 0 ||
+      achievements.length !== (base.achievements || []).length ||
+      JSON.stringify(achievements) !== JSON.stringify(base.achievements || []) ||
+      status !== base.status ||
+      !prevSteam ||
+      prevSteam.playtimeMinutes !== steam.playtimeMinutes ||
+      prevSteam.syncedAt !== steam.syncedAt;
+    if (!changed) return;
+
+    toSave.push({ ...base, status, completedAt, achievements, metadata: { ...(base.metadata || {}), steam }, updatedAt: now });
+    newlyDone += merged.newlyDone;
+    if (match) updated++;
+    else added++;
+  });
+  return { toSave, added, updated, newlyDone };
 };
 
 // Converte uma linha do banco (snake_case) pro formato que o resto do app já usa (camelCase)
@@ -407,6 +578,22 @@ export default function AchievementShelf() {
   const [autoCoverBusy, setAutoCoverBusy] = useState(false);
   const [autoCoverDone, setAutoCoverDone] = useState(false);
   const [autoCoverProgress, setAutoCoverProgress] = useState({ current: 0, total: 0, found: 0, notFound: 0 });
+  const [showSteam, setShowSteam] = useState(false);
+  const [steamProfile, setSteamProfile] = useState(() => {
+    try {
+      return localStorage.getItem(STEAM_PROFILE_STORAGE_KEY) || "";
+    } catch (e) {
+      return "";
+    }
+  });
+  const [steamStage, setSteamStage] = useState("idle"); // idle | lendo | previa | sincronizando | pronto
+  const [steamOwned, setSteamOwned] = useState(null);
+  const [steamAddNew, setSteamAddNew] = useState(true);
+  const [steamProgress, setSteamProgress] = useState({ current: 0, total: 0 });
+  const [steamResult, setSteamResult] = useState(null);
+  const [steamError, setSteamError] = useState("");
+  const [steamNotice, setSteamNotice] = useState(null);
+  const steamAutoRanRef = useRef(false);
 
   // Ao abrir a página, confere se a sessão salva ainda é válida (ou renova ela)
   // antes de decidir se mostra a tela de login ou já entra direto.
@@ -482,22 +669,28 @@ export default function AchievementShelf() {
   }, [session, sessionChecking]);
 
   const saveGames = async (gamesToSave) => {
-    const existingById = new Map(games.map((g) => [g.id, g]));
-    const mergedFull = (() => {
-      const map = new Map(existingById);
+    // Junta sobre o estado mais recente (e não sobre o `games` deste render), porque a
+    // sincronização da Steam salva depois de vários segundos e o usuário pode ter mexido em algo.
+    const mergeInto = (prev) => {
+      const map = new Map(prev.map((g) => [g.id, g]));
       gamesToSave.forEach((g) => map.set(g.id, g));
       return Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    })();
+    };
 
     let ok = true;
     try {
-      await sbUpsertGames(session.access_token, gamesToSave.map(gameToRow));
+      // Em lotes, pra uma sincronização grande (centenas de jogos com conquistas) não
+      // virar uma requisição gigante só.
+      const rows = gamesToSave.map(gameToRow);
+      for (let i = 0; i < rows.length; i += 50) {
+        await sbUpsertGames(session.access_token, rows.slice(i, i + 50));
+      }
     } catch (e) {
       console.error("Falha ao salvar no Supabase", e);
       ok = false;
     }
 
-    setGames(mergedFull);
+    setGames(mergeInto);
     setSaveWarning(!ok);
     return ok;
   };
@@ -536,6 +729,7 @@ export default function AchievementShelf() {
               platforms: match.platforms,
               screenshots: match.screenshots,
               artwork: match.artwork,
+              steam: g.metadata?.steam,
             },
             updatedAt: Date.now(),
           });
@@ -561,6 +755,109 @@ export default function AchievementShelf() {
     setAutoCoverDone(false);
     setAutoCoverProgress({ current: 0, total: 0, found: 0, notFound: 0 });
   };
+
+  // Busca as conquistas da Steam em lotes e salva o resultado. Usada pelo modal e pela
+  // sincronização automática. Lote que falha não derruba o resto: esses jogos ficam sem
+  // syncedAt novo e entram de novo na próxima sincronização.
+  const syncSteamAchievements = async (owned, { addNew, onProgress }) => {
+    const plan = planSteamSync(games, owned.games);
+    const targets = plan.items.filter((i) => i.needsAchievements && (i.match || addNew)).map((i) => i.owned.appid);
+    const byAppid = new Map();
+    let failed = 0;
+    if (onProgress) onProgress(0, targets.length);
+    for (let i = 0; i < targets.length; i += STEAM_BATCH_SIZE) {
+      const batch = targets.slice(i, i + STEAM_BATCH_SIZE);
+      try {
+        const data = await callSteamSync(session.access_token, { action: "achievements", steamid: owned.steamid, appids: batch });
+        (data.apps || []).forEach((app) => {
+          if (app.ok) byAppid.set(app.appid, app.achievements);
+          else failed++;
+        });
+      } catch (e) {
+        failed += batch.length;
+      }
+      if (onProgress) onProgress(Math.min(i + batch.length, targets.length), targets.length);
+    }
+    const result = applySteamSync(plan, byAppid, { addNew, now: Date.now() });
+    const ok = result.toSave.length > 0 ? await saveGames(result.toSave) : true;
+    try {
+      localStorage.setItem(STEAM_LAST_SYNC_STORAGE_KEY, String(Date.now()));
+    } catch (e) {
+      // sem localStorage a sincronização automática só roda de novo na próxima abertura
+    }
+    return { added: result.added, updated: result.updated, newlyDone: result.newlyDone, failed, ok };
+  };
+
+  const openSteam = () => {
+    setSteamStage("idle");
+    setSteamOwned(null);
+    setSteamResult(null);
+    setSteamError("");
+    setShowSteam(true);
+  };
+
+  const closeSteam = () => {
+    if (steamStage === "lendo" || steamStage === "sincronizando") return; // não deixa fechar no meio
+    setShowSteam(false);
+  };
+
+  const readSteamLibrary = async () => {
+    const profile = steamProfile.trim();
+    if (!profile) {
+      setSteamError("Cole o link do seu perfil da Steam.");
+      return;
+    }
+    setSteamStage("lendo");
+    setSteamError("");
+    try {
+      const owned = await callSteamSync(session.access_token, { action: "owned", profile });
+      try {
+        localStorage.setItem(STEAM_PROFILE_STORAGE_KEY, profile);
+      } catch (e) {
+        // tudo bem, só não lembra o perfil na próxima vez
+      }
+      setSteamOwned(owned);
+      setSteamStage("previa");
+    } catch (e) {
+      setSteamError(e.message);
+      setSteamStage("idle");
+    }
+  };
+
+  const runSteamSync = async () => {
+    setSteamStage("sincronizando");
+    const result = await syncSteamAchievements(steamOwned, {
+      addNew: steamAddNew,
+      onProgress: (current, total) => setSteamProgress({ current, total }),
+    });
+    setSteamResult(result);
+    setSteamStage("pronto");
+  };
+
+  // Sincronização automática ao abrir o app: só se já existe um perfil salvo e a última
+  // foi há mais de 12h. Atualiza só jogos que já estão na estante (não adiciona novos).
+  useEffect(() => {
+    if (loading || !session || steamAutoRanRef.current) return;
+    steamAutoRanRef.current = true;
+    let profile = "";
+    let last = 0;
+    try {
+      profile = localStorage.getItem(STEAM_PROFILE_STORAGE_KEY) || "";
+      last = Number(localStorage.getItem(STEAM_LAST_SYNC_STORAGE_KEY)) || 0;
+    } catch (e) {
+      return;
+    }
+    if (!profile || Date.now() - last < STEAM_AUTO_SYNC_MS) return;
+    (async () => {
+      try {
+        const owned = await callSteamSync(session.access_token, { action: "owned", profile });
+        const result = await syncSteamAchievements(owned, { addNew: false });
+        if (result.newlyDone > 0) setSteamNotice(result);
+      } catch (e) {
+        setSteamNotice({ error: e.message });
+      }
+    })();
+  }, [loading, session]);
 
   const retrySaveIndex = async () => {
     let ok = true;
@@ -869,6 +1166,8 @@ export default function AchievementShelf() {
     if (editingId) {
       const existing = games.find((g) => g.id === editingId);
       const updated = { ...existing, ...form, title: form.title.trim(), updatedAt: Date.now() };
+      // Trocar a capa pelo IGDB substitui o metadata inteiro; o vínculo com a Steam continua.
+      if (form.metadata && existing.metadata?.steam) updated.metadata = { ...form.metadata, steam: existing.metadata.steam };
       saveGames([updated]);
     } else {
       const newGame = {
@@ -1009,11 +1308,13 @@ export default function AchievementShelf() {
         closeCoverBatch();
       } else if (showAutoCover) {
         closeAutoCover();
+      } else if (showSteam) {
+        closeSteam();
       }
     };
     document.addEventListener("keydown", handleEscape);
     return () => document.removeEventListener("keydown", handleEscape);
-  }, [detailGameId, showForm, showBulk, showCoverBatch, showAutoCover]);
+  }, [detailGameId, showForm, showBulk, showCoverBatch, showAutoCover, showSteam, steamStage]);
 
   const updateGameAchievements = (gameId, updater) => {
     const game = games.find((g) => g.id === gameId);
@@ -1247,6 +1548,19 @@ export default function AchievementShelf() {
         </div>
       )}
 
+      {steamNotice && (
+        <div style={{ background: steamNotice.error ? "#E4536B22" : "#4FD1C522", border: `1px solid ${steamNotice.error ? "#E4536B" : "#4FD1C5"}`, borderRadius: "10px", padding: "10px 14px", marginBottom: "18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
+          <span style={{ fontSize: "12.5px", color: steamNotice.error ? "#F2B8C2" : "#BDEFEA" }}>
+            {steamNotice.error
+              ? `Não consegui sincronizar a Steam: ${steamNotice.error}`
+              : `Steam sincronizada: ${steamNotice.newlyDone} ${steamNotice.newlyDone === 1 ? "conquista nova" : "conquistas novas"} em ${steamNotice.updated} ${steamNotice.updated === 1 ? "jogo" : "jogos"}.`}
+          </span>
+          <button onClick={() => setSteamNotice(null)} style={{ background: "none", border: "none", color: "#9C9A93", cursor: "pointer", padding: "2px", flexShrink: 0 }}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {saveWarning && (
         <div style={{ background: "#E4536B22", border: "1px solid #E4536B", borderRadius: "10px", padding: "10px 14px", marginBottom: "18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
           <span style={{ fontSize: "12.5px", color: "#F2B8C2" }}>
@@ -1324,6 +1638,13 @@ export default function AchievementShelf() {
                     style={{ display: "flex", alignItems: "center", gap: "8px", background: "none", color: games.filter((g) => !g.cover).length === 0 ? "#4A4845" : "#EDEAE0", border: "none", padding: "9px 10px", borderRadius: "7px", fontWeight: 500, fontSize: "13px", cursor: games.filter((g) => !g.cover).length === 0 ? "default" : "pointer", textAlign: "left" }}
                   >
                     <Search size={15} /> Buscar capas automáticas
+                  </button>
+                  <button
+                    onClick={() => { openSteam(); setShowToolsMenu(false); }}
+                    title="Puxa da Steam os jogos e as conquistas desbloqueadas"
+                    style={{ display: "flex", alignItems: "center", gap: "8px", background: "none", color: "#EDEAE0", border: "none", padding: "9px 10px", borderRadius: "7px", fontWeight: 500, fontSize: "13px", cursor: "pointer", textAlign: "left" }}
+                  >
+                    <RefreshCw size={15} /> Sincronizar Steam
                   </button>
                 </div>
               </>
@@ -1641,6 +1962,91 @@ export default function AchievementShelf() {
           </div>
         </div>
       )}
+
+      {showSteam && (() => {
+        const plan = steamOwned ? planSteamSync(games, steamOwned.games) : null;
+        const primaryBtn = { width: "100%", padding: "10px", borderRadius: "8px", border: "none", background: "#E4536B", color: "#2A0F16", cursor: "pointer", fontSize: "13px", fontWeight: 600 };
+        return (
+          <div onClick={closeSteam} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: "16px" }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: "#1E1D26", borderRadius: "14px", padding: "22px", width: "100%", maxWidth: "400px", border: "1px solid #2E2C36" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+                <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "16px", margin: 0, fontWeight: 600 }}>
+                  Sincronizar Steam
+                </h2>
+                {steamStage !== "lendo" && steamStage !== "sincronizando" && (
+                  <button onClick={closeSteam} style={{ background: "none", border: "none", color: "#9C9A93", cursor: "pointer", padding: "2px" }}>
+                    <X size={18} />
+                  </button>
+                )}
+              </div>
+
+              {(steamStage === "idle" || steamStage === "lendo") && (
+                <>
+                  <p style={{ fontSize: "12.5px", color: "#9C9A93", lineHeight: 1.5, margin: "0 0 12px" }}>
+                    Cole o link do seu perfil (ex.: steamcommunity.com/id/seunome). O perfil e os detalhes de jogo precisam estar públicos na Steam.
+                  </p>
+                  <input
+                    value={steamProfile}
+                    onChange={(e) => setSteamProfile(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && steamStage === "idle") readSteamLibrary(); }}
+                    placeholder="https://steamcommunity.com/id/..."
+                    disabled={steamStage === "lendo"}
+                    style={{ ...inputStyle, marginBottom: "10px" }}
+                  />
+                  {steamError && <p style={{ fontSize: "12px", color: "#F2B8C2", margin: "0 0 10px", lineHeight: 1.5 }}>{steamError}</p>}
+                  <button onClick={readSteamLibrary} disabled={steamStage === "lendo"} style={{ ...primaryBtn, opacity: steamStage === "lendo" ? 0.6 : 1 }}>
+                    {steamStage === "lendo" ? "Lendo a biblioteca..." : "Ler biblioteca"}
+                  </button>
+                </>
+              )}
+
+              {steamStage === "previa" && plan && (
+                <>
+                  <p style={{ fontSize: "12.5px", color: "#9C9A93", lineHeight: 1.5, margin: "0 0 12px" }}>
+                    {steamOwned.personaName ? <strong style={{ color: "#EDEAE0" }}>{steamOwned.personaName}</strong> : "Perfil"} tem {steamOwned.games.length} jogos na Steam.{" "}
+                    <strong style={{ color: "#EDEAE0" }}>{plan.matchedCount}</strong> já estão na estante e vão receber as conquistas.
+                  </p>
+                  {plan.newCount > 0 && (
+                    <label style={{ display: "flex", gap: "8px", alignItems: "flex-start", fontSize: "12.5px", color: "#EDEAE0", marginBottom: "14px", cursor: "pointer", lineHeight: 1.5 }}>
+                      <input type="checkbox" checked={steamAddNew} onChange={(e) => setSteamAddNew(e.target.checked)} style={{ marginTop: "3px" }} />
+                      <span>Adicionar também os {plan.newCount} jogos já jogados que ainda não estão na estante</span>
+                    </label>
+                  )}
+                  <button onClick={runSteamSync} style={primaryBtn}>
+                    Sincronizar
+                  </button>
+                </>
+              )}
+
+              {steamStage === "sincronizando" && (
+                <>
+                  <p style={{ fontSize: "12.5px", color: "#9C9A93", margin: "0 0 10px" }}>
+                    Buscando conquistas... {steamProgress.current}/{steamProgress.total} jogos
+                  </p>
+                  <div style={{ height: "6px", background: "#15141B", borderRadius: "4px", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${steamProgress.total > 0 ? (steamProgress.current / steamProgress.total) * 100 : 0}%`, background: "#E4536B", borderRadius: "4px", transition: "width 0.2s ease" }} />
+                  </div>
+                </>
+              )}
+
+              {steamStage === "pronto" && steamResult && (
+                <>
+                  <p style={{ fontSize: "13px", color: "#EDEAE0", margin: "0 0 4px" }}>
+                    {steamResult.ok ? "Sincronização concluída!" : "Sincronizei, mas o salvamento falhou."}
+                  </p>
+                  <p style={{ fontSize: "12px", color: "#9C9A93", margin: "0 0 16px", lineHeight: 1.6 }}>
+                    <strong style={{ color: "#4FD1C5" }}>{steamResult.newlyDone}</strong> conquistas novas · <strong style={{ color: "#EDEAE0" }}>{steamResult.updated}</strong> jogos atualizados · <strong style={{ color: "#EDEAE0" }}>{steamResult.added}</strong> adicionados
+                    {steamResult.failed > 0 && <><br />{steamResult.failed} jogos não responderam e entram de novo na próxima sincronização.</>}
+                  </p>
+                  <button onClick={closeSteam} style={primaryBtn}>
+                    Fechar
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Achievement detail modal */}
       {detailGameId && (() => {
@@ -2106,7 +2512,7 @@ function DetailModal({ game, onClose, achText, setAchText, achError, onAddBulk, 
           </div>
         )}
 
-        {game.metadata && (
+        {game.metadata?.source && (
           <div style={{ background: "#15141B", border: "1px solid #2E2C36", borderRadius: "10px", padding: "12px", marginBottom: "16px" }}>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", fontSize: "11px", color: "#9C9A93", marginBottom: game.metadata.summary ? "8px" : 0 }}>
               {game.metadata.releaseYear && <span><strong style={{ color: "#EDEAE0" }}>{game.metadata.releaseYear}</strong></span>}
