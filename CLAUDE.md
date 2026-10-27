@@ -31,11 +31,11 @@ Repositório: `v7fwd2ds8z-ai/estante-de-conquistas` (usuário do GitHub: `v7fwd2
   - Sessão em `localStorage` (`estante_conquistas_session`), renovada a cada 30 minutos.
 - **IGDB** (capas, metadados, screenshots) pela Edge Function `hyper-api` (Deno), que usa credenciais da Twitch. Chamada em `searchIgdb`.
 - Imagens passam pelo proxy `images.weserv.nl` (`displayCoverUrl`).
-- O plano gratuito do Supabase pausa após ~7 dias sem uso. O workflow `keep-supabase-awake.yml` faz um ping a cada 3 dias (ver abaixo).
+- O plano gratuito do Supabase pausa após ~7 dias sem uso. O ping a cada 3 dias fica no repositório separado `v7fwd2ds8z-ai/manter-supabase` (workflow `keep-supabase-awake.yml`), não neste. Em out/2026 o projeto pausou mesmo com o ping passando; se voltar a acontecer, revisar o tipo de ping.
 
 ## Segurança — importante
 - A chave `anon` pode ficar no código do cliente.
-- A chave `service_role` **nunca** vai no código. Só existe nos Secrets do GitHub Actions (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`).
+- A chave `service_role` **nunca** vai no código. Só existe nos Secrets do GitHub Actions do repositório `manter-supabase` (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`).
 - O mesmo projeto Supabase também atende o simulador de pagamento da RPLK (leitura pública, escrita autenticada). Qualquer conta autenticada nesse projeto consegue escrever nos dois apps. Decisão pendente do Lucas: separar projetos ou restringir a RLS por e-mail/papel.
 
 ## Modelo de dados
