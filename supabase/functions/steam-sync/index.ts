@@ -149,9 +149,21 @@ const handleAchievements = async (key: string, steamid: string, appids: number[]
   return json({ apps });
 };
 
+// O "Verify JWT" do Supabase também deixa passar a chave anon (que é pública, está no app).
+// Pra só quem está logado gastar a chave da Steam, confere o token no Auth.
+const isLoggedUser = async (req: Request) => {
+  const auth = req.headers.get("Authorization") || "";
+  if (!auth.startsWith("Bearer ")) return false;
+  const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/auth/v1/user`, {
+    headers: { Authorization: auth, apikey: Deno.env.get("SUPABASE_ANON_KEY") || "" },
+  });
+  return res.ok;
+};
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Use POST." }, 405);
+  if (!(await isLoggedUser(req))) return json({ error: "Sessão expirada. Entre de novo no app." }, 401);
 
   const key = Deno.env.get("STEAM_API_KEY");
   if (!key) return json({ error: "STEAM_API_KEY não configurada no Supabase." }, 500);
