@@ -56,7 +56,9 @@ Repositório: `v7fwd2ds8z-ai/estante-de-conquistas` (usuário do GitHub: `v7fwd2
 - Importação em massa de conquistas: `Nome; Descrição; Pontos; DLC; Desbloqueada` (os 4 últimos campos são opcionais; o último aceita data ISO ou sim/true/x/1).
 
 ## Convenções de código
-- Estilos inline no JSX, fundo `#15141B`, texto `#EDEAE0`, destaque rosa/coral. Fontes: Space Grotesk, Inter, JetBrains Mono.
+- Visual "Placar": fundo `#0E0E10`, superfície `#16161A`, linhas `#2A2A2E`, texto `#F2F2EE`, texto secundário `#A2A2A8`, um único destaque verde-limão `#D7FF3A` (texto escuro sobre ele) e vermelho `#FF5A36` só para erro e exclusão. Fonte única Archivo (eixo de largura: números e títulos condensados com `font-stretch`), números tabulares, cantos retos. Mockups de referência no canvas https://claude.ai/artifact/L7BUhLyeogtxMsJRNDMmv1.
+- Estilos inline no JSX; o que precisa de `:hover` ou `@media` (celular até 720px) fica na constante `PLACAR_CSS`, em classes `placar-*`, `cart-*` e `detalhe-*`. Estilo inline vence classe: para esconder no celular algo que tem `display` inline, use `!important`.
+- O detalhe do jogo (`DetailModal`) é uma tela inteira, com ordenação por jogo/raridade/data e o modo "Gerenciar conquistas" (marcar todas, apagar, adicionar).
 - Ícones: `lucide-react`. Se usar um ícone novo, confira se está no import da linha 2 de `src/App.jsx`.
 - Textos da interface em português do Brasil.
 - Não reintroduza migrações "de uma vez só" que rodam a cada carregamento (já causaram o problema de sobrescrever o status "jogando"). Para mudanças em massa, faça um script ou botão explícito.

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Trophy, CheckCircle2, Play, Archive, Plus, X, Pencil, Trash2, Search, Gamepad2, ImageUp, FileUp, Download, Images, Upload, Clock, LogOut, Lock, Wrench, ChevronDown, RefreshCw } from "lucide-react";
+import { Trophy, CheckCircle2, Play, Archive, Plus, X, Pencil, Trash2, Search, Gamepad2, ImageUp, FileUp, Download, Images, Upload, Clock, LogOut, Lock, Wrench, ChevronDown, ChevronLeft, ChevronRight, Check, RefreshCw } from "lucide-react";
 
 const SUPABASE_URL = "https://ixwxxgrwafglumgelapt.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml4d3h4Z3J3YWZnbHVtZ2VsYXB0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5MDMwMDksImV4cCI6MjEwMzQ3OTAwOX0.zjjE9RnWUvAkBVPqG1_9rCkoKvsVvubd7VjvhSoOixk";
@@ -322,11 +322,11 @@ const PLATFORMS = [
 ];
 
 const STATUSES = [
-  { id: "100", label: "100%", color: "#E8A33D", dark: "#static", Icon: Trophy },
-  { id: "zerado", label: "Zerado", color: "#4FD1C5", Icon: CheckCircle2 },
-  { id: "jogando", label: "Jogando", color: "#8B7FD1", Icon: Play },
-  { id: "backlog", label: "Backlog", color: "#6B6960", Icon: Archive },
-  { id: "historico", label: "Histórico", color: "#8A8783", Icon: Clock },
+  { id: "100", label: "100%", color: "#D7FF3A", Icon: Trophy },
+  { id: "zerado", label: "Zerado", color: "#F2F2EE", Icon: CheckCircle2 },
+  { id: "jogando", label: "Jogando", color: "#7FD4FF", Icon: Play },
+  { id: "backlog", label: "Backlog", color: "#5A5A60", Icon: Archive },
+  { id: "historico", label: "Histórico", color: "#8A8A90", Icon: Clock },
 ];
 
 const platformOf = (id) => PLATFORMS.find((p) => p.id === id) || PLATFORMS[0];
@@ -357,6 +357,12 @@ const gamePoints = (game) => {
     return { earned: Number(game.gamerscoreEarned) || 0, total: Number(game.gamerscoreTotal) || 0, detailed: false };
   }
   return { earned: 0, total: 0, detailed: false };
+};
+
+// Percentual de conquistas de um jogo (pelos pontos); null quando o jogo não tem conquistas.
+const gamePct = (game) => {
+  const { earned, total } = gamePoints(game);
+  return total > 0 ? Math.floor((earned / total) * 100) : null;
 };
 
 const emptyForm = { title: "", platform: "switch2", status: "jogando", notes: "", cover: "", completedAt: "", startedAt: "" };
@@ -574,6 +580,7 @@ export default function AchievementShelf() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [showToolsMenu, setShowToolsMenu] = useState(false);
   const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState("recentes"); // recentes | progresso | nome
   const [showAutoCover, setShowAutoCover] = useState(false);
   const [autoCoverBusy, setAutoCoverBusy] = useState(false);
   const [autoCoverDone, setAutoCoverDone] = useState(false);
@@ -1292,16 +1299,17 @@ export default function AchievementShelf() {
   };
 
   // Atalho global de ESC: fecha o modal/janela aberta no momento. Prioridade:
-  // detalhe do jogo > formulário de novo/editar jogo > import em lote > lote de capas > busca automática.
+  // formulário de novo/editar jogo (abre por cima do detalhe) > detalhe do jogo > import em lote >
+  // lote de capas > busca automática > Steam.
   // Só um desses costuma estar aberto por vez, mas a ordem garante um comportamento
   // previsível caso mais de um esteja (o "mais em cima" fecha primeiro).
   useEffect(() => {
     const handleEscape = (e) => {
       if (e.key !== "Escape") return;
-      if (detailGameId) {
-        closeDetail();
-      } else if (showForm) {
+      if (showForm) {
         closeForm();
+      } else if (detailGameId) {
+        closeDetail();
       } else if (showBulk) {
         closeBulk();
       } else if (showCoverBatch) {
@@ -1436,6 +1444,12 @@ export default function AchievementShelf() {
     });
   }, [games, filterPlatform, filterStatus, search]);
 
+  const sorted = useMemo(() => {
+    if (sortBy === "nome") return [...filtered].sort((a, b) => a.title.localeCompare(b.title, "pt-BR"));
+    if (sortBy === "progresso") return [...filtered].sort((a, b) => (gamePct(b) ?? -1) - (gamePct(a) ?? -1));
+    return filtered;
+  }, [filtered, sortBy]);
+
   const counts = useMemo(() => {
     const c = { total: games.length, 100: 0, zerado: 0, jogando: 0, backlog: 0, historico: 0 };
     games.forEach((g) => { c[g.status] = (c[g.status] || 0) + 1; });
@@ -1460,7 +1474,7 @@ export default function AchievementShelf() {
 
   if (sessionChecking) {
     return (
-      <div style={{ fontFamily: "'Inter', sans-serif", background: "#15141B", minHeight: "300px", borderRadius: "16px", display: "flex", alignItems: "center", justifyContent: "center", color: "#6B6960", fontSize: "13px" }}>
+      <div style={{ fontFamily: "'Archivo', sans-serif", background: "#0E0E10", minHeight: "300px", borderRadius: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#8A8A90", fontSize: "13px" }}>
         carregando...
       </div>
     );
@@ -1468,15 +1482,14 @@ export default function AchievementShelf() {
 
   if (!session) {
     return (
-      <div style={{ fontFamily: "'Inter', sans-serif", background: "#15141B", minHeight: "500px", padding: "28px 24px", color: "#EDEAE0", borderRadius: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <style>{`@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap');`}</style>
-        <form onSubmit={handleLogin} style={{ width: "100%", maxWidth: "320px", background: "#1E1D26", border: "1px solid #2E2C36", borderRadius: "14px", padding: "28px 24px" }}>
+      <div style={{ fontFamily: "'Archivo', sans-serif", background: "#0E0E10", minHeight: "500px", padding: "28px 24px", color: "#F2F2EE", borderRadius: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <form onSubmit={handleLogin} style={{ width: "100%", maxWidth: "320px", background: "#16161A", border: "1px solid #2A2A2E", borderRadius: 0, padding: "28px 24px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-            <Lock size={16} color="#E4536B" />
-            <h1 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: "18px", margin: 0 }}>Estante de Conquistas</h1>
+            <Lock size={16} color="#D7FF3A" />
+            <h1 style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 700, fontSize: "18px", margin: 0 }}>Estante de Conquistas</h1>
           </div>
-          <p style={{ color: "#9C9A93", fontSize: "12px", margin: "4px 0 20px" }}>Faça login pra acessar sua estante</p>
-          <label style={{ display: "block", fontSize: "12px", color: "#9C9A93", marginBottom: "6px" }}>Email</label>
+          <p style={{ color: "#A2A2A8", fontSize: "12px", margin: "4px 0 20px" }}>Faça login pra acessar sua estante</p>
+          <label style={{ display: "block", fontSize: "12px", color: "#A2A2A8", marginBottom: "6px" }}>Email</label>
           <input
             type="email"
             value={loginEmail}
@@ -1484,7 +1497,7 @@ export default function AchievementShelf() {
             required
             style={{ ...inputStyle, marginBottom: "12px" }}
           />
-          <label style={{ display: "block", fontSize: "12px", color: "#9C9A93", marginBottom: "6px" }}>Senha</label>
+          <label style={{ display: "block", fontSize: "12px", color: "#A2A2A8", marginBottom: "6px" }}>Senha</label>
           <input
             type="password"
             value={loginPassword}
@@ -1492,11 +1505,11 @@ export default function AchievementShelf() {
             required
             style={{ ...inputStyle, marginBottom: "16px" }}
           />
-          {loginError && <p style={{ color: "#E4536B", fontSize: "12px", margin: "0 0 14px" }}>{loginError}</p>}
+          {loginError && <p style={{ color: "#FF7A5C", fontSize: "12px", margin: "0 0 14px" }}>{loginError}</p>}
           <button
             type="submit"
             disabled={loginBusy}
-            style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "none", background: loginBusy ? "#3A3844" : "#E4536B", color: loginBusy ? "#6B6960" : "#2A0F16", cursor: loginBusy ? "default" : "pointer", fontSize: "13px", fontWeight: 600 }}
+            style={{ width: "100%", padding: "10px", borderRadius: 0, border: "none", background: loginBusy ? "#2A2A2E" : "#D7FF3A", color: loginBusy ? "#8A8A90" : "#0E0E10", cursor: loginBusy ? "default" : "pointer", fontSize: "13px", fontWeight: 600 }}
           >
             {loginBusy ? "entrando..." : "Entrar"}
           </button>
@@ -1505,110 +1518,77 @@ export default function AchievementShelf() {
     );
   }
 
+  const steamGamesCount = games.filter((g) => g.platform === "steam").length;
+  const pctConquistado = pointsStats.totalPossible > 0 ? (pointsStats.totalEarned / pointsStats.totalPossible) * 100 : 0;
+  const platformCounts = games.reduce((acc, g) => {
+    const fam = platformFamily(g.platform);
+    acc[fam] = (acc[fam] || 0) + 1;
+    return acc;
+  }, {});
+
   return (
-    <div style={{ fontFamily: "'Inter', sans-serif", background: "#15141B", minHeight: "600px", padding: "28px 24px", color: "#EDEAE0", borderRadius: "16px" }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap');
-        .shelf-scroll::-webkit-scrollbar { height: 6px; }
-        .shelf-chip { transition: all 0.15s ease; cursor: pointer; }
-        .shelf-chip:hover { filter: brightness(1.15); }
-        .cart-card { transition: transform 0.12s ease, border-color 0.12s ease; }
-        .cart-card:hover { transform: translateY(-3px); }
-        .cart-actions { opacity: 0; transition: opacity 0.15s ease; }
-        .cart-card:hover .cart-actions { opacity: 1; }
-        input, textarea, select { font-family: 'Inter', sans-serif; }
-      `}</style>
+    <div style={{ fontFamily: "'Archivo', sans-serif", background: "#0E0E10", minHeight: "100vh", color: "#F2F2EE" }}>
+      <style>{PLACAR_CSS}</style>
+      <div className="placar-wrap">
 
       {restoreResult && (
-        <div
-          style={{
-            background: restoreResult.error ? "#E4536B22" : "#4FD1C522",
-            border: `1px solid ${restoreResult.error ? "#E4536B" : "#4FD1C5"}`,
-            borderRadius: "10px",
-            padding: "10px 14px",
-            marginBottom: "18px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "10px",
-            flexWrap: "wrap",
-          }}
-        >
-          <span style={{ fontSize: "12.5px", color: restoreResult.error ? "#F2B8C2" : "#B7EFE7" }}>
+        <div className="placar-aviso" style={{ borderColor: restoreResult.error ? "#FF5A36" : "#D7FF3A" }}>
+          <span style={{ color: restoreResult.error ? "#FFB3A1" : "#EEFF9A" }}>
             {restoreResult.error
-              ? `⚠️ ${restoreResult.error}`
-              : `✅ ${restoreResult.count} jogo(s) restaurado(s)${restoreResult.ok ? "" : " — mas algo pode não ter salvo, tenta de novo se sumir"}.`}
+              ? restoreResult.error
+              : `${restoreResult.count} jogo(s) restaurado(s)${restoreResult.ok ? "" : " — mas algo pode não ter salvo, tenta de novo se sumir"}.`}
           </span>
-          <button
-            onClick={() => setRestoreResult(null)}
-            style={{ background: "none", border: "1px solid currentColor", color: "inherit", borderRadius: "6px", padding: "4px 10px", fontSize: "11px", cursor: "pointer", flexShrink: 0 }}
-          >
-            ok
+          <button onClick={() => setRestoreResult(null)} aria-label="Fechar aviso" className="placar-x">
+            <X size={16} />
           </button>
         </div>
       )}
 
       {steamNotice && (
-        <div style={{ background: steamNotice.error ? "#E4536B22" : "#4FD1C522", border: `1px solid ${steamNotice.error ? "#E4536B" : "#4FD1C5"}`, borderRadius: "10px", padding: "10px 14px", marginBottom: "18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
-          <span style={{ fontSize: "12.5px", color: steamNotice.error ? "#F2B8C2" : "#BDEFEA" }}>
+        <div className="placar-aviso" style={{ borderColor: steamNotice.error ? "#FF5A36" : "#D7FF3A" }}>
+          <span style={{ color: steamNotice.error ? "#FFB3A1" : "#EEFF9A" }}>
             {steamNotice.error
               ? `Não consegui sincronizar a Steam: ${steamNotice.error}`
               : `Steam sincronizada: ${steamNotice.newlyDone} ${steamNotice.newlyDone === 1 ? "conquista nova" : "conquistas novas"} em ${steamNotice.updated} ${steamNotice.updated === 1 ? "jogo" : "jogos"}.`}
           </span>
-          <button onClick={() => setSteamNotice(null)} style={{ background: "none", border: "none", color: "#9C9A93", cursor: "pointer", padding: "2px", flexShrink: 0 }}>
+          <button onClick={() => setSteamNotice(null)} aria-label="Fechar aviso" className="placar-x">
             <X size={16} />
           </button>
         </div>
       )}
 
       {saveWarning && (
-        <div style={{ background: "#E4536B22", border: "1px solid #E4536B", borderRadius: "10px", padding: "10px 14px", marginBottom: "18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
-          <span style={{ fontSize: "12.5px", color: "#F2B8C2" }}>
-            ⚠️ A última alteração pode não ter sido salva de verdade. Não feche esta aba ainda.
+        <div className="placar-aviso" style={{ borderColor: "#FF5A36" }}>
+          <span style={{ color: "#FFB3A1" }}>
+            A última alteração pode não ter sido salva de verdade. Não feche esta aba ainda.
           </span>
-          <button
-            onClick={retrySaveIndex}
-            style={{ background: "#E4536B", color: "#2A0F16", border: "none", borderRadius: "6px", padding: "6px 12px", fontSize: "12px", fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
-          >
+          <button onClick={retrySaveIndex} className="placar-btn" style={{ background: "#FF5A36", color: "#0E0E10", border: "none", flexShrink: 0 }}>
             Tentar salvar de novo
           </button>
         </div>
       )}
 
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px", marginBottom: "24px" }}>
-        <div>
-          <h1 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: "26px", margin: 0, letterSpacing: "-0.02em" }}>
-            Estante de Conquistas
-          </h1>
-          <p style={{ color: "#9C9A93", fontSize: "13px", margin: "4px 0 0" }}>
-            catálogo pessoal — Switch 2 e o que sobrou do resto
-          </p>
-        </div>
-        <div style={{ display: "flex", gap: "8px" }}>
+      {/* Cabeçalho */}
+      <header className="placar-head">
+        <span className="placar-marca">Estante</span>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
           <div style={{ position: "relative" }}>
             <button
               onClick={() => setShowToolsMenu((s) => !s)}
-              style={{ display: "flex", alignItems: "center", gap: "6px", background: showToolsMenu ? "#2E2C36" : "transparent", color: "#EDEAE0", border: "1px solid #2E2C36", padding: "10px 14px", borderRadius: "10px", fontWeight: 500, fontSize: "14px", cursor: "pointer" }}
+              className="placar-btn"
+              aria-label="Ferramentas"
+              style={{ background: showToolsMenu ? "#2A2A2E" : "transparent", color: "#F2F2EE", border: "1px solid #3A3A40" }}
             >
-              <Wrench size={16} /> Ferramentas
+              <Wrench size={16} /> <span className="so-desktop">Ferramentas</span>
             </button>
             {showToolsMenu && (
               <>
                 <div onClick={() => setShowToolsMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
-                <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, background: "#1E1D26", border: "1px solid #2E2C36", borderRadius: "10px", padding: "6px", display: "flex", flexDirection: "column", gap: "2px", zIndex: 41, minWidth: "200px", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
-                  <button
-                    onClick={() => { exportData(); setShowToolsMenu(false); }}
-                    disabled={games.length === 0}
-                    title="Baixa um arquivo com todos os jogos e capas, útil como backup ou para migrar no futuro"
-                    style={{ display: "flex", alignItems: "center", gap: "8px", background: "none", color: games.length === 0 ? "#4A4845" : "#EDEAE0", border: "none", padding: "9px 10px", borderRadius: "7px", fontWeight: 500, fontSize: "13px", cursor: games.length === 0 ? "default" : "pointer", textAlign: "left" }}
-                  >
+                <div className="placar-menu">
+                  <button onClick={() => { exportData(); setShowToolsMenu(false); }} disabled={games.length === 0} title="Baixa um arquivo com todos os jogos e capas, útil como backup ou para migrar no futuro">
                     <Download size={15} /> Exportar
                   </button>
-                  <label
-                    title="Restaura jogos, capas e conquistas a partir de um arquivo de backup exportado anteriormente"
-                    style={{ display: "flex", alignItems: "center", gap: "8px", background: "none", color: "#EDEAE0", border: "none", padding: "9px 10px", borderRadius: "7px", fontWeight: 500, fontSize: "13px", cursor: restoreBusy ? "default" : "pointer", opacity: restoreBusy ? 0.6 : 1 }}
-                  >
+                  <label title="Restaura jogos, capas e conquistas a partir de um arquivo de backup exportado anteriormente" style={{ opacity: restoreBusy ? 0.6 : 1, cursor: restoreBusy ? "default" : "pointer" }}>
                     <Upload size={15} /> {restoreBusy ? "restaurando..." : "Restaurar backup"}
                     <input
                       type="file"
@@ -1618,156 +1598,141 @@ export default function AchievementShelf() {
                       style={{ display: "none" }}
                     />
                   </label>
-                  <button
-                    onClick={() => { setShowBulk(true); setShowToolsMenu(false); }}
-                    style={{ display: "flex", alignItems: "center", gap: "8px", background: "none", color: "#EDEAE0", border: "none", padding: "9px 10px", borderRadius: "7px", fontWeight: 500, fontSize: "13px", cursor: "pointer", textAlign: "left" }}
-                  >
+                  <button onClick={() => { setShowBulk(true); setShowToolsMenu(false); }}>
                     <FileUp size={15} /> Importar em lote
                   </button>
-                  <button
-                    onClick={() => { setShowCoverBatch(true); setShowToolsMenu(false); }}
-                    disabled={games.length === 0}
-                    style={{ display: "flex", alignItems: "center", gap: "8px", background: "none", color: games.length === 0 ? "#4A4845" : "#EDEAE0", border: "none", padding: "9px 10px", borderRadius: "7px", fontWeight: 500, fontSize: "13px", cursor: games.length === 0 ? "default" : "pointer", textAlign: "left" }}
-                  >
+                  <button onClick={() => { setShowCoverBatch(true); setShowToolsMenu(false); }} disabled={games.length === 0}>
                     <Images size={15} /> Várias capas
                   </button>
                   <button
                     onClick={() => { setShowAutoCover(true); setShowToolsMenu(false); }}
                     disabled={games.filter((g) => !g.cover).length === 0}
                     title="Busca automaticamente no IGDB e aplica a primeira opção encontrada pra cada jogo sem capa"
-                    style={{ display: "flex", alignItems: "center", gap: "8px", background: "none", color: games.filter((g) => !g.cover).length === 0 ? "#4A4845" : "#EDEAE0", border: "none", padding: "9px 10px", borderRadius: "7px", fontWeight: 500, fontSize: "13px", cursor: games.filter((g) => !g.cover).length === 0 ? "default" : "pointer", textAlign: "left" }}
                   >
                     <Search size={15} /> Buscar capas automáticas
-                  </button>
-                  <button
-                    onClick={() => { openSteam(); setShowToolsMenu(false); }}
-                    title="Puxa da Steam os jogos e as conquistas desbloqueadas"
-                    style={{ display: "flex", alignItems: "center", gap: "8px", background: "none", color: "#EDEAE0", border: "none", padding: "9px 10px", borderRadius: "7px", fontWeight: 500, fontSize: "13px", cursor: "pointer", textAlign: "left" }}
-                  >
-                    <RefreshCw size={15} /> Sincronizar Steam
                   </button>
                 </div>
               </>
             )}
           </div>
           <button
-            onClick={openAdd}
-            style={{ display: "flex", alignItems: "center", gap: "6px", background: "#E4536B", color: "#2A0F16", border: "none", padding: "10px 16px", borderRadius: "10px", fontWeight: 600, fontSize: "14px", cursor: "pointer" }}
+            onClick={openSteam}
+            className="placar-btn"
+            title="Puxa da Steam os jogos e as conquistas desbloqueadas"
+            aria-label="Sincronizar Steam"
+            style={{ background: "transparent", color: "#F2F2EE", border: "1px solid #3A3A40" }}
           >
-            <Plus size={16} /> Adicionar jogo
+            <RefreshCw size={16} /> <span className="so-desktop">Sincronizar</span>
           </button>
-          <button
-            onClick={handleLogout}
-            title="Sair"
-            style={{ display: "flex", alignItems: "center", gap: "6px", background: "transparent", color: "#6B6960", border: "1px solid #2E2C36", padding: "10px 12px", borderRadius: "10px", fontWeight: 500, fontSize: "14px", cursor: "pointer" }}
-          >
+          <button onClick={openAdd} className="placar-btn" aria-label="Adicionar jogo" style={{ background: "#D7FF3A", color: "#0E0E10", border: "none" }}>
+            <Plus size={16} /> <span className="so-desktop">Adicionar jogo</span>
+          </button>
+          <button onClick={handleLogout} className="placar-btn" title="Sair" aria-label="Sair" style={{ background: "transparent", color: "#A2A2A8", border: "1px solid #3A3A40", padding: "0 12px" }}>
             <LogOut size={16} />
           </button>
         </div>
-      </div>
+      </header>
 
       {loading ? (
-        <>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: "10px", marginBottom: "22px" }}>
-            {[0, 1, 2, 3, 4].map((i) => (
-              <div key={i} style={{ background: "#1E1D26", borderRadius: "10px", padding: "10px 12px", border: "1px solid #2E2C36", height: "52px" }} />
-            ))}
-          </div>
-          <div style={{ padding: "70px 0", textAlign: "center", color: "#6B6960", fontSize: "13px" }}>Carregando estante...</div>
-        </>
+        <div style={{ padding: "90px 0", textAlign: "center", color: "#A2A2A8", fontSize: "13px", fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase" }}>Carregando estante...</div>
       ) : (
         <>
-          {/* Stats */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: "10px", marginBottom: "22px" }}>
-            <StatCard label="na estante" value={counts.total} color="#EDEAE0" />
-            <StatCard label="100%" value={counts["100"] || 0} color="#E8A33D" Icon={Trophy} />
-            <StatCard label="zerados" value={counts.zerado || 0} color="#4FD1C5" Icon={CheckCircle2} />
-            <StatCard label="jogando" value={counts.jogando || 0} color="#8B7FD1" Icon={Play} />
-            <StatCard label="backlog" value={counts.backlog || 0} color="#6B6960" Icon={Archive} />
-            {counts.historico > 0 && <StatCard label="histórico" value={counts.historico} color="#8A8783" Icon={Clock} />}
-          </div>
-
-          {/* Points profile */}
-          {pointsStats.totalPossible > 0 && (
-            <div style={{ background: "#1E1D26", border: "1px solid #2E2C36", borderRadius: "10px", padding: "12px 16px", marginBottom: "22px" }}>
-              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: "8px", marginBottom: pointsStats.byPlatform && Object.keys(pointsStats.byPlatform).length > 0 ? "8px" : 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <Trophy size={13} color="#8B7FD1" />
-                  <span style={{ fontSize: "11.5px", color: "#9C9A93" }}>Pontuação do perfil</span>
-                </div>
-                <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "16px", fontWeight: 700, color: "#8B7FD1" }}>
-                  {pointsStats.totalEarned.toLocaleString("pt-BR")} <span style={{ fontSize: "11px", color: "#6B6960", fontWeight: 500 }}>/ {pointsStats.totalPossible.toLocaleString("pt-BR")} pts</span>
-                </span>
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+          {/* Placar */}
+          <section className="placar-hero">
+            <div>
+              <span className="placar-label">Pontos</span>
+              <span className="placar-num placar-num-grande">{pointsStats.totalEarned.toLocaleString("pt-BR")}</span>
+              <span style={{ fontSize: "13px", color: "#A2A2A8" }}>
+                de {pointsStats.totalPossible.toLocaleString("pt-BR")} possíveis
                 {FILTER_PLATFORMS.filter((p) => pointsStats.byPlatform[p.id]).map((p) => (
-                  <div key={p.id} style={{ display: "flex", alignItems: "center", gap: "5px", background: "#15141B", borderRadius: "6px", padding: "4px 9px" }}>
-                    <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: p.color, display: "inline-block" }} />
-                    <span style={{ fontSize: "10.5px", color: "#9C9A93" }}>{p.label}</span>
-                    <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "10.5px", color: "#B7C4CF" }}>
-                      {pointsStats.byPlatform[p.id].earned.toLocaleString("pt-BR")}/{pointsStats.byPlatform[p.id].possible.toLocaleString("pt-BR")}
-                    </span>
-                  </div>
+                  <span key={p.id} className="so-desktop"> · {p.label} {pointsStats.byPlatform[p.id].earned.toLocaleString("pt-BR")}</span>
                 ))}
+              </span>
+            </div>
+            <div>
+              <span className="placar-label">Jogos</span>
+              <span className="placar-num">{counts.total}</span>
+            </div>
+            <div>
+              <span className="placar-label">Com 100%</span>
+              <span className="placar-num" style={{ color: "#D7FF3A" }}>{counts["100"] || 0}</span>
+            </div>
+            <div>
+              <span className="placar-label">Conquistado</span>
+              <span className="placar-num">{pctConquistado.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%</span>
+            </div>
+          </section>
+
+          {/* Filtros */}
+          <div className="placar-chips" style={{ marginBottom: "10px" }}>
+            <Chip active={filterPlatform === "all"} onClick={() => setFilterPlatform("all")} label="Todos" count={counts.total} />
+            {FILTER_PLATFORMS.map((p) => (
+              <Chip key={p.id} active={filterPlatform === p.id} onClick={() => setFilterPlatform(p.id)} label={p.label} count={platformCounts[p.id] || 0} />
+            ))}
+          </div>
+          <div className="placar-filtros">
+            <div className="placar-chips">
+              <Chip active={filterStatus === "all"} onClick={() => setFilterStatus("all")} label="Todos os status" />
+              {STATUSES.map((s) => (
+                <Chip key={s.id} active={filterStatus === s.id} onClick={() => setFilterStatus(s.id)} label={s.label} count={counts[s.id] || 0} />
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", color: "#A2A2A8" }}>
+                <span className="so-desktop">Ordenar por</span>
+                <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Ordenar por" className="placar-campo" style={{ width: "auto" }}>
+                  <option value="recentes">mais recentes</option>
+                  <option value="progresso">progresso</option>
+                  <option value="nome">nome</option>
+                </select>
+              </label>
+              <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+                <Search size={14} style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: "#8A8A90" }} />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Buscar jogo"
+                  aria-label="Buscar jogo"
+                  className="placar-campo"
+                  style={{ paddingLeft: "34px", width: "100%", minWidth: 0 }}
+                />
               </div>
             </div>
-          )}
-
-          {/* Filters */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "10px" }}>
-            <Chip active={filterPlatform === "all"} onClick={() => setFilterPlatform("all")} label="Todas plataformas" />
-            {FILTER_PLATFORMS.map((p) => (
-              <Chip key={p.id} active={filterPlatform === p.id} onClick={() => setFilterPlatform(p.id)} label={p.label} dot={p.color} />
-            ))}
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "16px", alignItems: "center" }}>
-            <Chip active={filterStatus === "all"} onClick={() => setFilterStatus("all")} label="Todos status" />
-            {STATUSES.map((s) => (
-              <Chip key={s.id} active={filterStatus === s.id} onClick={() => setFilterStatus(s.id)} label={s.label} dot={s.color} />
-            ))}
-            <div style={{ marginLeft: "auto", position: "relative" }}>
-              <Search size={14} style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "#6B6960" }} />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar jogo..."
-                style={{ background: "#1E1D26", border: "1px solid #2E2C36", borderRadius: "8px", padding: "8px 10px 8px 30px", fontSize: "13px", color: "#EDEAE0", outline: "none", width: "170px" }}
-              />
-            </div>
           </div>
 
-          {/* Grid */}
+          {/* Grade */}
           {filtered.length === 0 ? (
             <EmptyState hasGames={games.length > 0} onAdd={openAdd} />
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: "16px" }}>
-          {filtered.map((g) => (
-            <GameCard key={g.id} game={g} onEdit={() => openEdit(g)} onDelete={() => removeGame(g.id)} onOpen={() => openDetail(g.id)} onMarkZerado={() => markAsZerado(g)} isConfirmingDelete={confirmDeleteId === g.id} />
-          ))}
-        </div>
+            <div className="placar-grade">
+              {sorted.map((g) => (
+                <GameCard key={g.id} game={g} onEdit={() => openEdit(g)} onDelete={() => removeGame(g.id)} onOpen={() => openDetail(g.id)} onMarkZerado={() => markAsZerado(g)} isConfirmingDelete={confirmDeleteId === g.id} />
+              ))}
+            </div>
           )}
         </>
       )}
 
+
       {/* Bulk import modal */}
       {showBulk && (
         <div onClick={closeBulk} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: "16px" }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: "#1E1D26", borderRadius: "14px", padding: "22px", width: "100%", maxWidth: "440px", border: "1px solid #2E2C36" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#16161A", borderRadius: 0, padding: "22px", width: "100%", maxWidth: "440px", border: "1px solid #2A2A2E" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-              <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "17px", margin: 0, fontWeight: 600 }}>
+              <h2 style={{ fontFamily: "'Archivo', sans-serif", fontSize: "17px", margin: 0, fontWeight: 600 }}>
                 Importar em lote
               </h2>
-              <button onClick={closeBulk} style={{ background: "none", border: "none", color: "#9C9A93", cursor: "pointer", padding: "2px" }}>
+              <button onClick={closeBulk} style={{ background: "none", border: "none", color: "#A2A2A8", cursor: "pointer", padding: "2px" }}>
                 <X size={18} />
               </button>
             </div>
 
-            <p style={{ fontSize: "12px", color: "#9C9A93", lineHeight: 1.5, margin: "0 0 10px" }}>
+            <p style={{ fontSize: "12px", color: "#A2A2A8", lineHeight: 1.5, margin: "0 0 10px" }}>
               Um jogo por linha, campos separados por ponto e vírgula:<br />
-              <span style={{ color: "#EDEAE0" }}>Título; Plataforma; Status; Data(AAAA-MM-DD); Notas; Link da capa</span><br />
+              <span style={{ color: "#F2F2EE" }}>Título; Plataforma; Status; Data(AAAA-MM-DD); Notas; Link da capa</span><br />
               Só o título é obrigatório. Campos em branco não apagam o que já existe — útil pra atualizar só a capa de jogos que já estão na estante.
             </p>
-            <div style={{ background: "#15141B", border: "1px solid #2E2C36", borderRadius: "8px", padding: "8px 10px", fontSize: "11px", color: "#6B6960", marginBottom: "12px", fontFamily: "'JetBrains Mono', monospace" }}>
+            <div style={{ background: "#0E0E10", border: "1px solid #2A2A2E", borderRadius: 0, padding: "8px 10px", fontSize: "11px", color: "#8A8A90", marginBottom: "12px", fontFamily: "'Archivo', sans-serif" }}>
               Hollow Knight; Switch 2; 100%; 2025-03-14<br />
               Celeste; Steam; Zerado<br />
               Elden Ring; PlayStation; Zerado; 2024-11-02; DLC incluso; https://exemplo.com/capa.jpg<br />
@@ -1779,19 +1744,19 @@ export default function AchievementShelf() {
               onChange={(e) => { setBulkText(e.target.value); setBulkResult(null); }}
               placeholder={"Hollow Knight; Switch 2; 100%; 2025-03-14\nCeleste; Steam; Zerado"}
               rows={7}
-              style={{ ...inputStyle, resize: "vertical", fontFamily: "'JetBrains Mono', monospace", fontSize: "12px", marginBottom: "10px" }}
+              style={{ ...inputStyle, resize: "vertical", fontFamily: "'Archivo', sans-serif", fontSize: "12px", marginBottom: "10px" }}
             />
 
             {bulkResult && (
               <div style={{ marginBottom: "10px", fontSize: "12px" }}>
                 {bulkResult.added > 0 && (
-                  <p style={{ color: "#4FD1C5", margin: "0 0 4px" }}>{bulkResult.added} jogo(s) novo(s) adicionado(s).</p>
+                  <p style={{ color: "#D7FF3A", margin: "0 0 4px" }}>{bulkResult.added} jogo(s) novo(s) adicionado(s).</p>
                 )}
                 {bulkResult.updated > 0 && (
-                  <p style={{ color: "#8B7FD1", margin: "0 0 4px" }}>{bulkResult.updated} jogo(s) já existente(s) atualizado(s) (status/data/notas).</p>
+                  <p style={{ color: "#F2F2EE", margin: "0 0 4px" }}>{bulkResult.updated} jogo(s) já existente(s) atualizado(s) (status/data/notas).</p>
                 )}
                 {bulkResult.errors.length > 0 && (
-                  <ul style={{ color: "#E4536B", margin: 0, paddingLeft: "16px" }}>
+                  <ul style={{ color: "#FF7A5C", margin: 0, paddingLeft: "16px" }}>
                     {bulkResult.errors.map((e, i) => <li key={i}>{e}</li>)}
                   </ul>
                 )}
@@ -1799,10 +1764,10 @@ export default function AchievementShelf() {
             )}
 
             <div style={{ display: "flex", gap: "8px" }}>
-              <button onClick={closeBulk} style={{ flex: 1, padding: "10px", borderRadius: "8px", border: "1px solid #2E2C36", background: "transparent", color: "#9C9A93", cursor: "pointer", fontSize: "13px", fontWeight: 500 }}>
+              <button onClick={closeBulk} style={{ flex: 1, padding: "10px", borderRadius: 0, border: "1px solid #2A2A2E", background: "transparent", color: "#A2A2A8", cursor: "pointer", fontSize: "13px", fontWeight: 500 }}>
                 Fechar
               </button>
-              <button onClick={runBulkImport} disabled={!bulkText.trim()} style={{ flex: 1, padding: "10px", borderRadius: "8px", border: "none", background: bulkText.trim() ? "#E4536B" : "#3A3844", color: bulkText.trim() ? "#2A0F16" : "#6B6960", cursor: bulkText.trim() ? "pointer" : "default", fontSize: "13px", fontWeight: 600 }}>
+              <button onClick={runBulkImport} disabled={!bulkText.trim()} style={{ flex: 1, padding: "10px", borderRadius: 0, border: "none", background: bulkText.trim() ? "#D7FF3A" : "#2A2A2E", color: bulkText.trim() ? "#0E0E10" : "#8A8A90", cursor: bulkText.trim() ? "pointer" : "default", fontSize: "13px", fontWeight: 600 }}>
                 Importar
               </button>
             </div>
@@ -1813,10 +1778,10 @@ export default function AchievementShelf() {
       {/* Batch cover matching modal */}
       {showCoverBatch && (
         <div onClick={closeCoverBatch} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: "16px" }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: "#1E1D26", borderRadius: "14px", width: "100%", maxWidth: "520px", border: "1px solid #2E2C36", maxHeight: "85vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#16161A", borderRadius: 0, width: "100%", maxWidth: "520px", border: "1px solid #2A2A2E", maxHeight: "85vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "22px 22px 14px", flexShrink: 0 }}>
-              <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "17px", margin: 0, fontWeight: 600 }}>Várias capas de uma vez</h2>
-              <button onClick={closeCoverBatch} style={{ background: "none", border: "none", color: "#9C9A93", cursor: "pointer", padding: "2px" }}>
+              <h2 style={{ fontFamily: "'Archivo', sans-serif", fontSize: "17px", margin: 0, fontWeight: 600 }}>Várias capas de uma vez</h2>
+              <button onClick={closeCoverBatch} style={{ background: "none", border: "none", color: "#A2A2A8", cursor: "pointer", padding: "2px" }}>
                 <X size={18} />
               </button>
             </div>
@@ -1827,14 +1792,14 @@ export default function AchievementShelf() {
                 onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setBatchDragging(false); }}
                 onDrop={handleBatchDrop}
                 style={{
-                  border: `1.5px dashed ${batchDragging ? "#E4536B" : "#2E2C36"}`, borderRadius: "10px",
-                  background: batchDragging ? "#E4536B14" : "transparent", padding: "20px 10px", textAlign: "center", transition: "all 0.12s ease", marginBottom: "16px",
+                  border: `1.5px dashed ${batchDragging ? "#D7FF3A" : "#2A2A2E"}`, borderRadius: 0,
+                  background: batchDragging ? "#D7FF3A14" : "transparent", padding: "20px 10px", textAlign: "center", transition: "all 0.12s ease", marginBottom: "16px",
                 }}
               >
-                <p style={{ fontSize: "12px", color: batchDragging ? "#E4536B" : "#6B6960", margin: "0 0 8px" }}>
+                <p style={{ fontSize: "12px", color: batchDragging ? "#D7FF3A" : "#8A8A90", margin: "0 0 8px" }}>
                   {batchDragging ? "solta aqui" : "arraste várias imagens aqui de uma vez, ou"}
                 </p>
-                <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "#EDEAE0", border: "1px solid #2E2C36", borderRadius: "8px", padding: "7px 12px", cursor: "pointer", background: "#15141B" }}>
+                <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "#F2F2EE", border: "1px solid #2A2A2E", borderRadius: 0, padding: "7px 12px", cursor: "pointer", background: "#0E0E10" }}>
                   <ImageUp size={13} />
                   escolher várias do computador
                   <input type="file" accept="image/*" multiple onChange={handleBatchFilePick} style={{ display: "none" }} />
@@ -1843,7 +1808,7 @@ export default function AchievementShelf() {
 
               {coverQueue.length > 0 && (
                 <>
-                  <p style={{ fontSize: "12px", color: "#9C9A93", margin: "0 0 10px" }}>
+                  <p style={{ fontSize: "12px", color: "#A2A2A8", margin: "0 0 10px" }}>
                     Pra cada imagem, escolhe o jogo correspondente (já tentei adivinhar pelo nome do arquivo, e pela própria imagem quando o nome não ajudou):
                   </p>
                   <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
@@ -1853,17 +1818,17 @@ export default function AchievementShelf() {
                         .slice()
                         .sort((a, b) => a.title.localeCompare(b.title, "pt"));
                       return (
-                        <div key={q.tempId} style={{ display: "flex", alignItems: "center", gap: "10px", background: "#15141B", border: "1px solid #2E2C36", borderRadius: "8px", padding: "8px" }}>
-                          <img src={q.dataUrl} alt={q.filename} style={{ width: "36px", height: "48px", objectFit: "cover", borderRadius: "4px", flexShrink: 0 }} />
+                        <div key={q.tempId} style={{ display: "flex", alignItems: "center", gap: "10px", background: "#0E0E10", border: "1px solid #2A2A2E", borderRadius: 0, padding: "8px" }}>
+                          <img src={q.dataUrl} alt={q.filename} style={{ width: "36px", height: "48px", objectFit: "cover", borderRadius: 0, flexShrink: 0 }} />
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: "10.5px", color: "#6B6960", marginBottom: "4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{q.filename}</div>
+                            <div style={{ fontSize: "10.5px", color: "#8A8A90", marginBottom: "4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{q.filename}</div>
                             {q.visionPending ? (
-                              <div style={{ fontSize: "11px", color: "#8B7FD1", padding: "6px 0" }}>analisando imagem...</div>
+                              <div style={{ fontSize: "11px", color: "#F2F2EE", padding: "6px 0" }}>analisando imagem...</div>
                             ) : (
                               <select
                                 value={q.selectedGameId}
                                 onChange={(e) => setQueueItemGame(q.tempId, e.target.value)}
-                                style={{ width: "100%", background: "#1E1D26", border: "1px solid #2E2C36", borderRadius: "6px", padding: "6px 8px", fontSize: "12px", color: "#EDEAE0", outline: "none" }}
+                                style={{ width: "100%", background: "#16161A", border: "1px solid #2A2A2E", borderRadius: 0, padding: "6px 8px", fontSize: "12px", color: "#F2F2EE", outline: "none" }}
                               >
                                 <option value="">— escolher jogo —</option>
                                 {pickerOptions.map((g) => (
@@ -1872,7 +1837,7 @@ export default function AchievementShelf() {
                               </select>
                             )}
                           </div>
-                          <button onClick={() => removeQueueItem(q.tempId)} style={{ background: "none", border: "none", color: "#6B6960", cursor: "pointer", padding: "2px", flexShrink: 0 }} aria-label="Remover da fila">
+                          <button onClick={() => removeQueueItem(q.tempId)} style={{ background: "none", border: "none", color: "#8A8A90", cursor: "pointer", padding: "2px", flexShrink: 0 }} aria-label="Remover da fila">
                             <X size={14} />
                           </button>
                         </div>
@@ -1882,7 +1847,7 @@ export default function AchievementShelf() {
                   <button
                     onClick={applyCoverBatch}
                     disabled={batchApplying || coverQueue.every((q) => !q.selectedGameId)}
-                    style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "none", background: "#E4536B", color: "#2A0F16", cursor: "pointer", fontSize: "13px", fontWeight: 600, opacity: batchApplying ? 0.6 : 1 }}
+                    style={{ width: "100%", padding: "10px", borderRadius: 0, border: "none", background: "#D7FF3A", color: "#0E0E10", cursor: "pointer", fontSize: "13px", fontWeight: 600, opacity: batchApplying ? 0.6 : 1 }}
                   >
                     {batchApplying ? "aplicando..." : `Aplicar ${coverQueue.filter((q) => q.selectedGameId).length} capa(s)`}
                   </button>
@@ -1895,13 +1860,13 @@ export default function AchievementShelf() {
 
       {showAutoCover && (
         <div onClick={closeAutoCover} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: "16px" }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: "#1E1D26", borderRadius: "14px", padding: "22px", width: "100%", maxWidth: "380px", border: "1px solid #2E2C36" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#16161A", borderRadius: 0, padding: "22px", width: "100%", maxWidth: "380px", border: "1px solid #2A2A2E" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-              <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "16px", margin: 0, fontWeight: 600 }}>
+              <h2 style={{ fontFamily: "'Archivo', sans-serif", fontSize: "16px", margin: 0, fontWeight: 600 }}>
                 Buscar capas automáticas
               </h2>
               {!autoCoverBusy && (
-                <button onClick={closeAutoCover} style={{ background: "none", border: "none", color: "#9C9A93", cursor: "pointer", padding: "2px" }}>
+                <button onClick={closeAutoCover} style={{ background: "none", border: "none", color: "#A2A2A8", cursor: "pointer", padding: "2px" }}>
                   <X size={18} />
                 </button>
               )}
@@ -1909,12 +1874,12 @@ export default function AchievementShelf() {
 
             {!autoCoverBusy && !autoCoverDone && (
               <>
-                <p style={{ fontSize: "12.5px", color: "#9C9A93", lineHeight: 1.5, margin: "0 0 16px" }}>
-                  Isso vai buscar no IGDB pelo título de cada um dos <strong style={{ color: "#EDEAE0" }}>{games.filter((g) => !g.cover).length} jogos sem capa</strong> e aplicar automaticamente a primeira opção encontrada (capa + ano, gêneros, desenvolvedora, nota e sinopse). Se alguma vier errada, você pode corrigir manualmente depois editando o jogo.
+                <p style={{ fontSize: "12.5px", color: "#A2A2A8", lineHeight: 1.5, margin: "0 0 16px" }}>
+                  Isso vai buscar no IGDB pelo título de cada um dos <strong style={{ color: "#F2F2EE" }}>{games.filter((g) => !g.cover).length} jogos sem capa</strong> e aplicar automaticamente a primeira opção encontrada (capa + ano, gêneros, desenvolvedora, nota e sinopse). Se alguma vier errada, você pode corrigir manualmente depois editando o jogo.
                 </p>
                 <button
                   onClick={runAutoCoverSearch}
-                  style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "none", background: "#E4536B", color: "#2A0F16", cursor: "pointer", fontSize: "13px", fontWeight: 600 }}
+                  style={{ width: "100%", padding: "10px", borderRadius: 0, border: "none", background: "#D7FF3A", color: "#0E0E10", cursor: "pointer", fontSize: "13px", fontWeight: 600 }}
                 >
                   Iniciar busca ({games.filter((g) => !g.cover).length} jogos)
                 </button>
@@ -1923,21 +1888,21 @@ export default function AchievementShelf() {
 
             {autoCoverBusy && (
               <>
-                <p style={{ fontSize: "12.5px", color: "#9C9A93", margin: "0 0 10px" }}>
+                <p style={{ fontSize: "12.5px", color: "#A2A2A8", margin: "0 0 10px" }}>
                   Buscando... {autoCoverProgress.current}/{autoCoverProgress.total}
                 </p>
-                <div style={{ height: "6px", background: "#15141B", borderRadius: "4px", overflow: "hidden", marginBottom: "10px" }}>
+                <div style={{ height: "6px", background: "#0E0E10", borderRadius: 0, overflow: "hidden", marginBottom: "10px" }}>
                   <div
                     style={{
                       height: "100%",
                       width: `${autoCoverProgress.total > 0 ? (autoCoverProgress.current / autoCoverProgress.total) * 100 : 0}%`,
-                      background: "#E4536B",
-                      borderRadius: "4px",
+                      background: "#D7FF3A",
+                      borderRadius: 0,
                       transition: "width 0.2s ease",
                     }}
                   />
                 </div>
-                <p style={{ fontSize: "11px", color: "#6B6960", margin: 0 }}>
+                <p style={{ fontSize: "11px", color: "#8A8A90", margin: 0 }}>
                   {autoCoverProgress.found} encontradas · {autoCoverProgress.notFound} não encontradas
                 </p>
               </>
@@ -1945,15 +1910,15 @@ export default function AchievementShelf() {
 
             {autoCoverDone && (
               <>
-                <p style={{ fontSize: "13px", color: "#EDEAE0", margin: "0 0 4px" }}>
+                <p style={{ fontSize: "13px", color: "#F2F2EE", margin: "0 0 4px" }}>
                   Busca concluída!
                 </p>
-                <p style={{ fontSize: "12px", color: "#9C9A93", margin: "0 0 16px" }}>
-                  <strong style={{ color: "#4FD1C5" }}>{autoCoverProgress.found}</strong> capas aplicadas · <strong style={{ color: "#9C9A93" }}>{autoCoverProgress.notFound}</strong> não encontradas no IGDB
+                <p style={{ fontSize: "12px", color: "#A2A2A8", margin: "0 0 16px" }}>
+                  <strong style={{ color: "#D7FF3A" }}>{autoCoverProgress.found}</strong> capas aplicadas · <strong style={{ color: "#A2A2A8" }}>{autoCoverProgress.notFound}</strong> não encontradas no IGDB
                 </p>
                 <button
                   onClick={closeAutoCover}
-                  style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "none", background: "#E4536B", color: "#2A0F16", cursor: "pointer", fontSize: "13px", fontWeight: 600 }}
+                  style={{ width: "100%", padding: "10px", borderRadius: 0, border: "none", background: "#D7FF3A", color: "#0E0E10", cursor: "pointer", fontSize: "13px", fontWeight: 600 }}
                 >
                   Fechar
                 </button>
@@ -1965,16 +1930,16 @@ export default function AchievementShelf() {
 
       {showSteam && (() => {
         const plan = steamOwned ? planSteamSync(games, steamOwned.games) : null;
-        const primaryBtn = { width: "100%", padding: "10px", borderRadius: "8px", border: "none", background: "#E4536B", color: "#2A0F16", cursor: "pointer", fontSize: "13px", fontWeight: 600 };
+        const primaryBtn = { width: "100%", padding: "10px", borderRadius: 0, border: "none", background: "#D7FF3A", color: "#0E0E10", cursor: "pointer", fontSize: "13px", fontWeight: 600 };
         return (
           <div onClick={closeSteam} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: "16px" }}>
-            <div onClick={(e) => e.stopPropagation()} style={{ background: "#1E1D26", borderRadius: "14px", padding: "22px", width: "100%", maxWidth: "400px", border: "1px solid #2E2C36" }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: "#16161A", borderRadius: 0, padding: "22px", width: "100%", maxWidth: "400px", border: "1px solid #2A2A2E" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-                <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "16px", margin: 0, fontWeight: 600 }}>
+                <h2 style={{ fontFamily: "'Archivo', sans-serif", fontSize: "16px", margin: 0, fontWeight: 600 }}>
                   Sincronizar Steam
                 </h2>
                 {steamStage !== "lendo" && steamStage !== "sincronizando" && (
-                  <button onClick={closeSteam} style={{ background: "none", border: "none", color: "#9C9A93", cursor: "pointer", padding: "2px" }}>
+                  <button onClick={closeSteam} style={{ background: "none", border: "none", color: "#A2A2A8", cursor: "pointer", padding: "2px" }}>
                     <X size={18} />
                   </button>
                 )}
@@ -1982,7 +1947,7 @@ export default function AchievementShelf() {
 
               {(steamStage === "idle" || steamStage === "lendo") && (
                 <>
-                  <p style={{ fontSize: "12.5px", color: "#9C9A93", lineHeight: 1.5, margin: "0 0 12px" }}>
+                  <p style={{ fontSize: "12.5px", color: "#A2A2A8", lineHeight: 1.5, margin: "0 0 12px" }}>
                     Cole o link do seu perfil (ex.: steamcommunity.com/id/seunome). O perfil e os detalhes de jogo precisam estar públicos na Steam.
                   </p>
                   <input
@@ -1993,7 +1958,7 @@ export default function AchievementShelf() {
                     disabled={steamStage === "lendo"}
                     style={{ ...inputStyle, marginBottom: "10px" }}
                   />
-                  {steamError && <p style={{ fontSize: "12px", color: "#F2B8C2", margin: "0 0 10px", lineHeight: 1.5 }}>{steamError}</p>}
+                  {steamError && <p style={{ fontSize: "12px", color: "#FFB3A1", margin: "0 0 10px", lineHeight: 1.5 }}>{steamError}</p>}
                   <button onClick={readSteamLibrary} disabled={steamStage === "lendo"} style={{ ...primaryBtn, opacity: steamStage === "lendo" ? 0.6 : 1 }}>
                     {steamStage === "lendo" ? "Lendo a biblioteca..." : "Ler biblioteca"}
                   </button>
@@ -2002,12 +1967,12 @@ export default function AchievementShelf() {
 
               {steamStage === "previa" && plan && (
                 <>
-                  <p style={{ fontSize: "12.5px", color: "#9C9A93", lineHeight: 1.5, margin: "0 0 12px" }}>
-                    {steamOwned.personaName ? <strong style={{ color: "#EDEAE0" }}>{steamOwned.personaName}</strong> : "Perfil"} tem {steamOwned.games.length} jogos na Steam.{" "}
-                    <strong style={{ color: "#EDEAE0" }}>{plan.matchedCount}</strong> já estão na estante e vão receber as conquistas.
+                  <p style={{ fontSize: "12.5px", color: "#A2A2A8", lineHeight: 1.5, margin: "0 0 12px" }}>
+                    {steamOwned.personaName ? <strong style={{ color: "#F2F2EE" }}>{steamOwned.personaName}</strong> : "Perfil"} tem {steamOwned.games.length} jogos na Steam.{" "}
+                    <strong style={{ color: "#F2F2EE" }}>{plan.matchedCount}</strong> já estão na estante e vão receber as conquistas.
                   </p>
                   {plan.newCount > 0 && (
-                    <label style={{ display: "flex", gap: "8px", alignItems: "flex-start", fontSize: "12.5px", color: "#EDEAE0", marginBottom: "14px", cursor: "pointer", lineHeight: 1.5 }}>
+                    <label style={{ display: "flex", gap: "8px", alignItems: "flex-start", fontSize: "12.5px", color: "#F2F2EE", marginBottom: "14px", cursor: "pointer", lineHeight: 1.5 }}>
                       <input type="checkbox" checked={steamAddNew} onChange={(e) => setSteamAddNew(e.target.checked)} style={{ marginTop: "3px" }} />
                       <span>Adicionar também os {plan.newCount} jogos já jogados que ainda não estão na estante</span>
                     </label>
@@ -2020,22 +1985,22 @@ export default function AchievementShelf() {
 
               {steamStage === "sincronizando" && (
                 <>
-                  <p style={{ fontSize: "12.5px", color: "#9C9A93", margin: "0 0 10px" }}>
+                  <p style={{ fontSize: "12.5px", color: "#A2A2A8", margin: "0 0 10px" }}>
                     Buscando conquistas... {steamProgress.current}/{steamProgress.total} jogos
                   </p>
-                  <div style={{ height: "6px", background: "#15141B", borderRadius: "4px", overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${steamProgress.total > 0 ? (steamProgress.current / steamProgress.total) * 100 : 0}%`, background: "#E4536B", borderRadius: "4px", transition: "width 0.2s ease" }} />
+                  <div style={{ height: "6px", background: "#0E0E10", borderRadius: 0, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${steamProgress.total > 0 ? (steamProgress.current / steamProgress.total) * 100 : 0}%`, background: "#D7FF3A", borderRadius: 0, transition: "width 0.2s ease" }} />
                   </div>
                 </>
               )}
 
               {steamStage === "pronto" && steamResult && (
                 <>
-                  <p style={{ fontSize: "13px", color: "#EDEAE0", margin: "0 0 4px" }}>
+                  <p style={{ fontSize: "13px", color: "#F2F2EE", margin: "0 0 4px" }}>
                     {steamResult.ok ? "Sincronização concluída!" : "Sincronizei, mas o salvamento falhou."}
                   </p>
-                  <p style={{ fontSize: "12px", color: "#9C9A93", margin: "0 0 16px", lineHeight: 1.6 }}>
-                    <strong style={{ color: "#4FD1C5" }}>{steamResult.newlyDone}</strong> conquistas novas · <strong style={{ color: "#EDEAE0" }}>{steamResult.updated}</strong> jogos atualizados · <strong style={{ color: "#EDEAE0" }}>{steamResult.added}</strong> adicionados
+                  <p style={{ fontSize: "12px", color: "#A2A2A8", margin: "0 0 16px", lineHeight: 1.6 }}>
+                    <strong style={{ color: "#D7FF3A" }}>{steamResult.newlyDone}</strong> conquistas novas · <strong style={{ color: "#F2F2EE" }}>{steamResult.updated}</strong> jogos atualizados · <strong style={{ color: "#F2F2EE" }}>{steamResult.added}</strong> adicionados
                     {steamResult.failed > 0 && <><br />{steamResult.failed} jogos não responderam e entram de novo na próxima sincronização.</>}
                   </p>
                   <button onClick={closeSteam} style={primaryBtn}>
@@ -2056,6 +2021,7 @@ export default function AchievementShelf() {
           <DetailModal
             game={game}
             onClose={closeDetail}
+            onEdit={() => openEdit(game)}
             achText={achText}
             setAchText={setAchText}
             achError={achError}
@@ -2073,12 +2039,12 @@ export default function AchievementShelf() {
       {/* Form modal */}
       {showForm && (
         <div onClick={closeForm} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: "16px" }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: "#1E1D26", borderRadius: "14px", width: "100%", maxWidth: "380px", border: "1px solid #2E2C36", maxHeight: "85vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "22px 22px 16px", flexShrink: 0, background: "#1E1D26", position: "sticky", top: 0, zIndex: 1 }}>
-              <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "17px", margin: 0, fontWeight: 600 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#16161A", borderRadius: 0, width: "100%", maxWidth: "380px", border: "1px solid #2A2A2E", maxHeight: "85vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "22px 22px 16px", flexShrink: 0, background: "#16161A", position: "sticky", top: 0, zIndex: 1 }}>
+              <h2 style={{ fontFamily: "'Archivo', sans-serif", fontSize: "17px", margin: 0, fontWeight: 600 }}>
                 {editingId ? "Editar jogo" : "Novo jogo"}
               </h2>
-              <button type="button" onClick={closeForm} style={{ background: "none", border: "none", color: "#9C9A93", cursor: "pointer", padding: "2px" }}>
+              <button type="button" onClick={closeForm} style={{ background: "none", border: "none", color: "#A2A2A8", cursor: "pointer", padding: "2px" }}>
                 <X size={18} />
               </button>
             </div>
@@ -2108,26 +2074,26 @@ export default function AchievementShelf() {
                 title={!form.title.trim() ? "Preenche o título primeiro" : "Busca o jogo no IGDB pra você escolher a versão certa"}
                 style={{
                   display: "flex", alignItems: "center", gap: "6px", width: "100%", justifyContent: "center",
-                  background: coverSearchBusy ? "#3A3844" : "#8B7FD122", color: coverSearchBusy ? "#6B6960" : "#8B7FD1",
-                  border: `1px solid ${coverSearchBusy ? "#2E2C36" : "#8B7FD155"}`, borderRadius: "8px", padding: "8px",
+                  background: coverSearchBusy ? "#2A2A2E" : "#F2F2EE22", color: coverSearchBusy ? "#8A8A90" : "#F2F2EE",
+                  border: `1px solid ${coverSearchBusy ? "#2A2A2E" : "#F2F2EE55"}`, borderRadius: 0, padding: "8px",
                   fontSize: "12px", fontWeight: 600, cursor: coverSearchBusy || !form.title.trim() ? "default" : "pointer", marginBottom: "8px",
                 }}
               >
                 <Search size={13} /> {coverSearchBusy ? "buscando no IGDB..." : "Buscar no IGDB"}
               </button>
-              {coverSearchError && <p style={{ color: "#E4536B", fontSize: "11px", margin: "0 0 8px" }}>{coverSearchError}</p>}
+              {coverSearchError && <p style={{ color: "#FF7A5C", fontSize: "11px", margin: "0 0 8px" }}>{coverSearchError}</p>}
               {coverCandidates.length > 0 && (
                 <div style={{ marginBottom: "10px" }}>
-                  <p style={{ fontSize: "11px", color: "#9C9A93", margin: "0 0 6px" }}>Escolha a versão correta:</p>
+                  <p style={{ fontSize: "11px", color: "#A2A2A8", margin: "0 0 6px" }}>Escolha a versão correta:</p>
                   <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "260px", overflowY: "auto" }}>
                     {coverCandidates.map((m) => (
                       <button
                         key={m.id}
                         type="button"
                         onClick={() => pickIgdbMatch(m)}
-                        style={{ display: "flex", gap: "8px", textAlign: "left", padding: "6px", border: "1px solid #2E2C36", borderRadius: "8px", cursor: "pointer", background: "#15141B" }}
+                        style={{ display: "flex", gap: "8px", textAlign: "left", padding: "6px", border: "1px solid #2A2A2E", borderRadius: 0, cursor: "pointer", background: "#0E0E10" }}
                       >
-                        <div style={{ width: "42px", height: "56px", flexShrink: 0, borderRadius: "4px", overflow: "hidden", background: "#0A0910" }}>
+                        <div style={{ width: "42px", height: "56px", flexShrink: 0, borderRadius: 0, overflow: "hidden", background: "#0A0910" }}>
                           {m.cover && (
                             <img
                               src={displayCoverUrl(m.cover)}
@@ -2138,10 +2104,10 @@ export default function AchievementShelf() {
                           )}
                         </div>
                         <div style={{ minWidth: 0, flex: 1 }}>
-                          <div style={{ fontSize: "12px", fontWeight: 600, color: "#EDEAE0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {m.name} {m.releaseYear ? <span style={{ color: "#6B6960", fontWeight: 400 }}>({m.releaseYear})</span> : null}
+                          <div style={{ fontSize: "12px", fontWeight: 600, color: "#F2F2EE", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {m.name} {m.releaseYear ? <span style={{ color: "#8A8A90", fontWeight: 400 }}>({m.releaseYear})</span> : null}
                           </div>
-                          <div style={{ fontSize: "10px", color: "#9C9A93", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: "2px" }}>
+                          <div style={{ fontSize: "10px", color: "#A2A2A8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: "2px" }}>
                             {[m.developer, ...(m.platforms || []).slice(0, 3)].filter(Boolean).join(" · ")}
                           </div>
                         </div>
@@ -2151,7 +2117,7 @@ export default function AchievementShelf() {
                   <button
                     type="button"
                     onClick={() => setCoverCandidates([])}
-                    style={{ background: "none", border: "none", color: "#6B6960", fontSize: "11px", cursor: "pointer", marginTop: "6px", textDecoration: "underline" }}
+                    style={{ background: "none", border: "none", color: "#8A8A90", fontSize: "11px", cursor: "pointer", marginTop: "6px", textDecoration: "underline" }}
                   >
                     nenhuma dessas, esconder opções
                   </button>
@@ -2169,14 +2135,14 @@ export default function AchievementShelf() {
                 onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setCoverDragging(false); }}
                 onDrop={handleCoverDrop}
                 style={{
-                  marginTop: "8px", border: `1.5px dashed ${coverDragging ? "#E4536B" : "#2E2C36"}`, borderRadius: "10px",
-                  background: coverDragging ? "#E4536B14" : "transparent", padding: "14px 10px", textAlign: "center", transition: "all 0.12s ease",
+                  marginTop: "8px", border: `1.5px dashed ${coverDragging ? "#D7FF3A" : "#2A2A2E"}`, borderRadius: 0,
+                  background: coverDragging ? "#D7FF3A14" : "transparent", padding: "14px 10px", textAlign: "center", transition: "all 0.12s ease",
                 }}
               >
-                <p style={{ fontSize: "11px", color: coverDragging ? "#E4536B" : "#6B6960", margin: "0 0 8px" }}>
+                <p style={{ fontSize: "11px", color: coverDragging ? "#D7FF3A" : "#8A8A90", margin: "0 0 8px" }}>
                   {coverDragging ? "solta aqui" : "arraste uma imagem aqui, ou"}
                 </p>
-                <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "#EDEAE0", border: "1px solid #2E2C36", borderRadius: "8px", padding: "7px 12px", cursor: "pointer", background: "#15141B" }}>
+                <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "#F2F2EE", border: "1px solid #2A2A2E", borderRadius: 0, padding: "7px 12px", cursor: "pointer", background: "#0E0E10" }}>
                   <ImageUp size={13} />
                   {coverBusy ? "processando..." : "escolher do computador"}
                   <input type="file" accept="image/*" onChange={handleCoverFile} disabled={coverBusy} style={{ display: "none" }} />
@@ -2187,14 +2153,14 @@ export default function AchievementShelf() {
                   <button
                     type="button"
                     onClick={() => setForm({ ...form, cover: "" })}
-                    style={{ background: "none", border: "none", color: "#9C9A93", fontSize: "12px", cursor: "pointer", textDecoration: "underline" }}
+                    style={{ background: "none", border: "none", color: "#A2A2A8", fontSize: "12px", cursor: "pointer", textDecoration: "underline" }}
                   >
                     remover capa
                   </button>
                 )}
               </div>
               {form.cover && (
-                <div style={{ marginTop: "10px", width: "64px", height: "85px", borderRadius: "6px", overflow: "hidden", border: "1px solid #2E2C36" }}>
+                <div style={{ marginTop: "10px", width: "64px", height: "85px", borderRadius: 0, overflow: "hidden", border: "1px solid #2A2A2E" }}>
                   <img src={displayCoverUrl(form.cover)} alt="Prévia da capa" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                 </div>
               )}
@@ -2208,10 +2174,10 @@ export default function AchievementShelf() {
                     type="button"
                     onClick={() => setForm({ ...form, status: s.id })}
                     style={{
-                      display: "flex", alignItems: "center", gap: "5px", padding: "7px 10px", borderRadius: "8px", fontSize: "12px", fontWeight: 600, cursor: "pointer",
-                      border: form.status === s.id ? `1px solid ${s.color}` : "1px solid #2E2C36",
+                      display: "flex", alignItems: "center", gap: "5px", padding: "7px 10px", borderRadius: 0, fontSize: "12px", fontWeight: 600, cursor: "pointer",
+                      border: form.status === s.id ? `1px solid ${s.color}` : "1px solid #2A2A2E",
                       background: form.status === s.id ? `${s.color}22` : "transparent",
-                      color: form.status === s.id ? s.color : "#9C9A93",
+                      color: form.status === s.id ? s.color : "#A2A2A8",
                     }}
                   >
                     <s.Icon size={13} /> {s.label}
@@ -2252,13 +2218,13 @@ export default function AchievementShelf() {
               />
             </Field>
 
-            {formError && <p style={{ color: "#E4536B", fontSize: "12px", margin: "0 0 12px" }}>{formError}</p>}
+            {formError && <p style={{ color: "#FF7A5C", fontSize: "12px", margin: "0 0 12px" }}>{formError}</p>}
 
             <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
-              <button type="button" onClick={closeForm} style={{ flex: 1, padding: "10px", borderRadius: "8px", border: "1px solid #2E2C36", background: "transparent", color: "#9C9A93", cursor: "pointer", fontSize: "13px", fontWeight: 500 }}>
+              <button type="button" onClick={closeForm} style={{ flex: 1, padding: "10px", borderRadius: 0, border: "1px solid #2A2A2E", background: "transparent", color: "#A2A2A8", cursor: "pointer", fontSize: "13px", fontWeight: 500 }}>
                 Cancelar
               </button>
-              <button type="submit" style={{ flex: 1, padding: "10px", borderRadius: "8px", border: "none", background: "#E4536B", color: "#2A0F16", cursor: "pointer", fontSize: "13px", fontWeight: 600 }}>
+              <button type="submit" style={{ flex: 1, padding: "10px", borderRadius: 0, border: "none", background: "#D7FF3A", color: "#0E0E10", cursor: "pointer", fontSize: "13px", fontWeight: 600 }}>
                 {editingId ? "Salvar" : "Adicionar"}
               </button>
             </div>
@@ -2266,63 +2232,127 @@ export default function AchievementShelf() {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function StatCard({ label, value, color, Icon }) {
-  return (
-    <div style={{ background: "#1E1D26", borderRadius: "10px", padding: "10px 12px", border: "1px solid #2E2C36" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "5px", marginBottom: "4px" }}>
-        {Icon && <Icon size={12} color={color} />}
-        <span style={{ fontSize: "11px", color: "#9C9A93" }}>{label}</span>
       </div>
-      <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "20px", fontWeight: 600, color }}>{value}</div>
     </div>
   );
 }
 
-function Chip({ active, onClick, label, dot }) {
+function Chip({ active, onClick, label, count }) {
   return (
-    <div
-      className="shelf-chip"
+    <button
+      type="button"
+      className="placar-chip"
       onClick={onClick}
+      aria-pressed={active}
       style={{
-        display: "flex", alignItems: "center", gap: "6px", padding: "6px 12px", borderRadius: "20px", fontSize: "12px", fontWeight: 500,
-        border: active ? "1px solid #E4536B" : "1px solid #2E2C36",
-        background: active ? "#E4536B22" : "transparent",
-        color: active ? "#EDEAE0" : "#9C9A93",
+        background: active ? "#F2F2EE" : "transparent",
+        color: active ? "#0E0E10" : "#F2F2EE",
+        border: active ? "1px solid #F2F2EE" : "1px solid #3A3A40",
+        fontWeight: active ? 700 : 600,
       }}
     >
-      {dot && <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: dot, display: "inline-block" }} />}
       {label}
-    </div>
+      {count !== undefined && <span style={{ opacity: active ? 0.7 : 0.6 }}> · {count}</span>}
+    </button>
   );
 }
 
 function Field({ label, children }) {
   return (
     <div style={{ marginBottom: "14px" }}>
-      <label style={{ display: "block", fontSize: "12px", color: "#9C9A93", marginBottom: "6px" }}>{label}</label>
+      <label style={{ display: "block", fontSize: "12px", color: "#A2A2A8", marginBottom: "6px" }}>{label}</label>
       {children}
     </div>
   );
 }
 
 const inputStyle = {
-  width: "100%", background: "#15141B", border: "1px solid #2E2C36", borderRadius: "8px", padding: "9px 10px", fontSize: "13px", color: "#EDEAE0", outline: "none", boxSizing: "border-box",
+  width: "100%", background: "#0E0E10", border: "1px solid #2A2A2E", borderRadius: 0, padding: "9px 10px", fontSize: "13px", color: "#F2F2EE", outline: "none", boxSizing: "border-box",
 };
+
+// Estilos da direção "Placar" que precisam de :hover ou de @media (o resto é inline).
+const PLACAR_CSS = `
+  .placar-wrap { max-width: 1280px; margin: 0 auto; padding: 40px 48px 64px; }
+  .placar-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 32px; }
+  .placar-marca { font-weight: 900; font-stretch: 70%; font-size: 34px; letter-spacing: 0.02em; text-transform: uppercase; line-height: 1; }
+  .placar-btn { height: 44px; padding: 0 16px; display: inline-flex; align-items: center; gap: 8px; font-family: inherit; font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
+  .placar-btn:hover, .placar-chip:hover { filter: brightness(1.15); }
+  .placar-chip { height: 40px; padding: 0 14px; font-family: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
+  .placar-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .placar-filtros { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 28px; }
+  .placar-campo { height: 40px; background: #0E0E10; border: 1px solid #3A3A40; color: #F2F2EE; font-family: inherit; font-size: 13px; padding: 0 10px; outline: none; }
+  .placar-campo:focus { border-color: #F2F2EE; }
+  .placar-menu { position: absolute; top: calc(100% + 6px); right: 0; background: #16161A; border: 1px solid #2A2A2E; padding: 6px; display: flex; flex-direction: column; gap: 2px; z-index: 41; min-width: 220px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+  .placar-menu button, .placar-menu label { display: flex; align-items: center; gap: 10px; background: none; color: #F2F2EE; border: none; padding: 11px 10px; font-family: inherit; font-weight: 600; font-size: 13px; cursor: pointer; text-align: left; }
+  .placar-menu button:hover, .placar-menu label:hover { background: #222226; }
+  .placar-menu button:disabled { color: #55555C; cursor: default; background: none; }
+  .placar-aviso { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid; padding: 10px 14px; margin-bottom: 18px; font-size: 13px; }
+  .placar-x { background: none; border: none; color: #A2A2A8; cursor: pointer; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .placar-hero { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; border-top: 1px solid #2A2A2E; border-bottom: 1px solid #2A2A2E; margin-bottom: 28px; }
+  .placar-hero > div { padding: 24px; border-left: 1px solid #2A2A2E; display: flex; flex-direction: column; justify-content: flex-end; gap: 10px; min-width: 0; }
+  .placar-hero > div:first-child { border-left: none; padding-left: 0; }
+  .placar-hero > div:last-child { padding-right: 0; }
+  .placar-label { font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #A2A2A8; }
+  .placar-num { font-weight: 800; font-stretch: 68%; line-height: 0.9; font-size: clamp(40px, 5vw, 64px); }
+  .placar-num-grande { font-size: clamp(64px, 8.4vw, 112px); letter-spacing: -0.01em; }
+  .placar-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 28px 16px; }
+  .cart-card { cursor: pointer; display: flex; flex-direction: column; gap: 10px; position: relative; min-width: 0; }
+  .cart-card .cart-capa img { transition: transform 0.2s ease; }
+  .cart-card:hover .cart-capa img { transform: scale(1.03); }
+  .cart-actions { opacity: 0; transition: opacity 0.15s ease; }
+  .cart-card:hover .cart-actions, .cart-card:focus-within .cart-actions { opacity: 1; }
+  .detalhe-wrap { max-width: 1180px; margin: 0 auto; padding: 32px 48px 64px; }
+  .detalhe-topo { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 28px 40px; align-items: end; padding-bottom: 32px; border-bottom: 1px solid #2A2A2E; margin-bottom: 24px; }
+  .detalhe-titulo { margin: 0; font-size: 112px; font-weight: 900; font-stretch: 62%; line-height: 0.85; text-transform: uppercase; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+  .detalhe-capa { grid-row: span 2; align-self: start; }
+  .detalhe-stats { grid-column: 2; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid #2A2A2E; }
+  .detalhe-stats > div { padding: 18px 20px 0; border-left: 1px solid #2A2A2E; display: flex; flex-direction: column; gap: 8px; }
+  .detalhe-stats > div:first-child { border-left: none; padding-left: 0; }
+  .detalhe-num { font-size: 48px; white-space: nowrap; }
+  .detalhe-num-sub { color: #A2A2A8; font-size: 28px; }
+  .detalhe-linha { display: grid; grid-template-columns: 56px minmax(0, 1fr) 260px 64px 44px; gap: 16px; align-items: center; padding: 12px 0; border-bottom: 1px solid #222226; cursor: pointer; }
+  .detalhe-linha:hover { background: #141417; }
+  input, textarea, select { font-family: 'Archivo', sans-serif; }
+  @media (max-width: 720px) {
+    .placar-wrap { padding: 20px 16px 48px; }
+    .placar-head { margin-bottom: 20px; }
+    .placar-marca { font-size: 26px; }
+    .placar-btn { padding: 0 12px; }
+    .so-desktop { display: none !important; }
+    .placar-hero { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 20px; }
+    .placar-hero > div { padding: 12px; }
+    .placar-hero > div:first-child { grid-column: 1 / -1; padding: 0 0 16px; border-bottom: 1px solid #2A2A2E; }
+    .placar-hero > div:nth-child(2) { border-left: none; padding-left: 0; }
+    .placar-num { font-size: 28px; }
+    .placar-num-grande { font-size: 76px; }
+    .placar-chips { flex-wrap: nowrap; overflow-x: auto; margin-left: -16px; margin-right: -16px; padding: 0 16px; scrollbar-width: none; }
+    .placar-chips::-webkit-scrollbar { display: none; }
+    .placar-filtros { flex-direction: column; flex-wrap: nowrap; align-items: stretch; margin-bottom: 20px; }
+    .placar-filtros > * { min-width: 0; }
+    .placar-grade { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 10px; }
+    .cart-titulo { font-size: 12px !important; }
+    .detalhe-wrap { padding: 16px 16px 48px; }
+    .detalhe-topo { grid-template-columns: 110px minmax(0, 1fr); gap: 16px; padding-bottom: 20px; }
+    .detalhe-titulo { font-size: 48px; }
+    .detalhe-capa { grid-row: auto; }
+    .detalhe-stats { grid-column: 1 / -1; }
+    .detalhe-stats > div { padding: 12px 12px 0; }
+    .detalhe-num { font-size: 30px; }
+    .detalhe-num-sub { font-size: 18px; }
+    .detalhe-linha { grid-template-columns: 40px minmax(0, 1fr) 44px; gap: 12px; }
+    .detalhe-linha .detalhe-raridade, .detalhe-linha .detalhe-pontos { display: none !important; }
+  }
+`;
 
 function GameCard({ game, onEdit, onDelete, onOpen, onMarkZerado, isConfirmingDelete }) {
   const [imgFailed, setImgFailed] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
-  const platform = platformOf(game.platform);
   const status = statusOf(game.status);
-  const StatusIcon = status.Icon;
+  const platform = platformOf(game.platform);
   const showCover = game.cover && !imgFailed;
-  const achievements = game.achievements || [];
-  const achDone = achievements.filter((a) => a.done).length;
   const points = gamePoints(game);
+  const pct = gamePct(game);
+  const is100 = game.status === "100" || pct === 100;
 
   const handleImgError = () => {
     if (retryNonce < 3) {
@@ -2342,13 +2372,8 @@ function GameCard({ game, onEdit, onDelete, onOpen, onMarkZerado, isConfirmingDe
   };
 
   return (
-    <div className="cart-card" onClick={onOpen} style={{ background: "#1E1D26", borderRadius: "14px 14px 8px 8px", border: "1px solid #2E2C36", overflow: "hidden", position: "relative", cursor: "pointer" }}>
-      <div style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", width: "36px", height: "7px", background: "#15141B", borderRadius: "0 0 6px 6px", zIndex: 2 }} />
-      <div style={{ background: status.color, padding: "9px 10px 7px", display: "flex", alignItems: "center", gap: "5px" }}>
-        <StatusIcon size={13} color="#1A1A1A" />
-        <span style={{ fontSize: "11px", fontWeight: 700, color: "#1A1A1A", letterSpacing: "0.02em" }}>{status.label}</span>
-      </div>
-      <div style={{ width: "100%", aspectRatio: "3 / 4", background: showCover ? "#0F0E14" : `${platform.color}18`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", overflow: "hidden", gap: "6px" }}>
+    <article className="cart-card" onClick={onOpen}>
+      <div className="cart-capa" style={{ position: "relative", aspectRatio: "2 / 3", background: "#1C1C20", overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "8px" }}>
         {showCover ? (
           <img
             key={retryNonce}
@@ -2359,109 +2384,92 @@ function GameCard({ game, onEdit, onDelete, onOpen, onMarkZerado, isConfirmingDe
             }
             alt={`Capa de ${game.title}`}
             onError={handleImgError}
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            loading="lazy"
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
           />
         ) : (
           <>
-            <Gamepad2 size={26} color={platform.color} style={{ opacity: 0.55 }} />
+            <Gamepad2 size={26} color="#55555C" />
             {game.cover && imgFailed && (
               <>
-                <span style={{ fontSize: "9px", color: "#8A8783", textAlign: "center", padding: "0 10px" }}>link da capa não carregou</span>
-                <button
-                  onClick={handleManualRetry}
-                  style={{ fontSize: "9px", color: "#8B7FD1", background: "none", border: "1px solid #8B7FD155", borderRadius: "6px", padding: "3px 8px", cursor: "pointer" }}
-                >
+                <span style={{ fontSize: "11px", color: "#8A8A90", textAlign: "center", padding: "0 10px" }}>a capa não carregou</span>
+                <button onClick={handleManualRetry} style={{ fontSize: "11px", fontWeight: 700, color: "#F2F2EE", background: "none", border: "1px solid #3A3A40", padding: "6px 10px", cursor: "pointer" }}>
                   tentar de novo
                 </button>
               </>
             )}
           </>
         )}
-      </div>
-      <div style={{ padding: "12px 12px 14px", minHeight: "92px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "5px", marginBottom: "7px" }}>
-          <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: platform.color, display: "inline-block" }} />
-          <span style={{ fontSize: "10px", color: "#9C9A93", fontWeight: 500 }}>{platform.label}</span>
-        </div>
-        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: "13.5px", lineHeight: 1.3, marginBottom: (game.completedAt || game.startedAt || game.notes || achievements.length > 0 || points.total > 0) ? "6px" : 0 }}>
-          {game.title}
-        </div>
-        {game.completedAt && isCompletedStatus(game.status) && (
-          <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "10.5px", color: "#8A8783", marginBottom: game.notes ? "6px" : 0 }}>
-            zerado em {formatDate(game.completedAt)}
-          </div>
+        {is100 && (
+          <span style={{ position: "absolute", top: 0, left: 0, background: "#D7FF3A", color: "#0E0E10", fontSize: "12px", fontWeight: 900, fontStretch: "75%", padding: "5px 8px", letterSpacing: "0.04em" }}>100%</span>
         )}
-        {game.startedAt && game.status === "jogando" && (
-          <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "10.5px", color: "#8A8783", marginBottom: game.notes ? "6px" : 0 }}>
-            desde {formatDate(game.startedAt)}
-          </div>
-        )}
-        {game.notes && (
-          <p style={{ fontSize: "11px", color: "#8A8783", margin: 0, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", marginBottom: (achievements.length > 0 || points.total > 0) ? "6px" : 0 }}>
-            {game.notes}
-          </p>
-        )}
-        {(achievements.length > 0 || points.total > 0) && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-            {achievements.length > 0 && (
-              <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-                <Trophy size={11} color="#E8A33D" />
-                <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "10.5px", color: "#E8A33D" }}>
-                  {achDone}/{achievements.length}
-                </span>
-              </div>
-            )}
-            {points.total > 0 && (
-              <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "10px", color: "#8B7FD1" }}>
-                {points.earned.toLocaleString("pt-BR")}/{points.total.toLocaleString("pt-BR")} pts
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-      <div className="cart-actions" style={{ position: "absolute", top: "40px", right: "8px", display: "flex", gap: "4px", opacity: isConfirmingDelete ? 1 : undefined }}>
-        {game.status === "historico" && (
+        <div className="cart-actions" style={{ position: "absolute", top: "6px", right: "6px", display: "flex", gap: "4px", opacity: isConfirmingDelete ? 1 : undefined }}>
+          {game.status === "historico" && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onMarkZerado(); }}
+              style={{ ...iconBtnStyle, background: "#F2F2EE", borderColor: "#F2F2EE", color: "#0E0E10" }}
+              aria-label="Marcar como zerado"
+              title="Marcar como zerado"
+            >
+              <CheckCircle2 size={14} />
+            </button>
+          )}
+          <button onClick={(e) => { e.stopPropagation(); onEdit(); }} style={iconBtnStyle} aria-label="Editar" title="Editar"><Pencil size={14} /></button>
           <button
-            onClick={(e) => { e.stopPropagation(); onMarkZerado(); }}
-            style={{ ...iconBtnStyle, background: "#4FD1C5", borderColor: "#4FD1C5", color: "#0F2E2A" }}
-            aria-label="Marcar como zerado"
-            title="Marcar como zerado"
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            style={isConfirmingDelete ? { ...iconBtnStyle, background: "#FF5A36", borderColor: "#FF5A36", color: "#0E0E10" } : iconBtnStyle}
+            aria-label={isConfirmingDelete ? "Clique de novo para confirmar" : "Remover"}
+            title={isConfirmingDelete ? "Clique de novo pra confirmar" : "Remover"}
           >
-            <CheckCircle2 size={12} />
+            <Trash2 size={14} />
           </button>
-        )}
-        <button onClick={(e) => { e.stopPropagation(); onEdit(); }} style={iconBtnStyle} aria-label="Editar"><Pencil size={12} /></button>
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          style={isConfirmingDelete ? { ...iconBtnStyle, background: "#E4536B", borderColor: "#E4536B", color: "#2A0F16" } : iconBtnStyle}
-          aria-label={isConfirmingDelete ? "Clique de novo para confirmar" : "Remover"}
-          title={isConfirmingDelete ? "Clique de novo pra confirmar" : "Remover"}
-        >
-          <Trash2 size={12} />
-        </button>
+        </div>
       </div>
-    </div>
+      <div style={{ height: "3px", background: "#2A2A2E" }}>
+        <div style={{ width: `${pct ?? 0}%`, height: "100%", background: is100 ? "#D7FF3A" : "#F2F2EE" }} />
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "8px" }}>
+        <span className="cart-titulo" style={{ fontSize: "14px", fontWeight: 700, fontStretch: "85%", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={game.title}>
+          {game.title}
+        </span>
+        {pct !== null && (
+          <span style={{ fontSize: "13px", fontWeight: 700, color: is100 ? "#D7FF3A" : "#F2F2EE", flexShrink: 0 }}>{pct}%</span>
+        )}
+      </div>
+      <span className="so-desktop" style={{ fontSize: "12px", color: "#A2A2A8", marginTop: "-6px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        {platform.label}
+        {" · "}
+        {points.total > 0 ? `${points.earned.toLocaleString("pt-BR")} pts` : <span style={{ color: status.color }}>{status.label}</span>}
+      </span>
+    </article>
   );
 }
 
-function DetailModal({ game, onClose, achText, setAchText, achError, onAddBulk, onToggle, onRemove, onCompleteAll, onUncompleteAll, onDeleteAll, onAddSingle }) {
+const RARA_PCT = 5;
+
+const formatPct = (n) => `${Number(n).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+
+function DetailModal({ game, onClose, onEdit, achText, setAchText, achError, onAddBulk, onToggle, onRemove, onCompleteAll, onUncompleteAll, onDeleteAll, onAddSingle }) {
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
-  const [showSingleForm, setShowSingleForm] = useState(false);
   const [singleName, setSingleName] = useState("");
   const [singleDesc, setSingleDesc] = useState("");
   const [singlePoints, setSinglePoints] = useState("");
   const [singleDlc, setSingleDlc] = useState("");
   const [lightboxIndex, setLightboxIndex] = useState(null);
   const [collapsedGroups, setCollapsedGroups] = useState({});
+  const [ordem, setOrdem] = useState("jogo"); // jogo | raras | data
+  const [gerenciar, setGerenciar] = useState(false);
+  const [imgFailed, setImgFailed] = useState(false);
   const platform = platformOf(game.platform);
   const status = statusOf(game.status);
   const achievements = game.achievements || [];
   const dlcOptions = [...new Set(achievements.map((a) => a.dlc).filter(Boolean))];
   const done = achievements.filter((a) => a.done).length;
-  const pct = achievements.length > 0 ? Math.round((done / achievements.length) * 100) : 0;
-  const totalPoints = achievements.reduce((s, a) => s + (Number(a.points) || 0), 0);
-  const earnedPoints = achievements.filter((a) => a.done).reduce((s, a) => s + (Number(a.points) || 0), 0);
   const aggPoints = gamePoints(game);
+  const pct = gamePct(game);
+  const is100 = game.status === "100" || pct === 100;
+  const temRaridade = achievements.some((a) => typeof a.rarity === "number");
+  const rarasFeitas = achievements.filter((a) => a.done && typeof a.rarity === "number" && a.rarity < RARA_PCT).length;
 
   const submitSingle = () => {
     if (!singleName.trim()) return;
@@ -2473,8 +2481,8 @@ function DetailModal({ game, onClose, achText, setAchText, achError, onAddBulk, 
   };
 
   // Se o lightbox de screenshot estiver aberto, ESC fecha só ele — e impede
-  // (via stopImmediatePropagation) que o mesmo ESC também feche o modal de
-  // detalhe por trás, já que os dois listeners ficam no document.
+  // (via stopImmediatePropagation) que o mesmo ESC também feche o detalhe
+  // por trás, já que os dois listeners ficam no document.
   useEffect(() => {
     if (lightboxIndex === null) return;
     const handleEscape = (e) => {
@@ -2486,338 +2494,339 @@ function DetailModal({ game, onClose, achText, setAchText, achError, onAddBulk, 
     return () => document.removeEventListener("keydown", handleEscape);
   }, [lightboxIndex]);
 
+  // "Ordem do jogo" agrupa por DLC (jogo base primeiro); as outras ordens são uma lista só.
+  const grupos = (() => {
+    if (ordem === "raras") {
+      const lista = [...achievements].sort((a, b) => (a.rarity ?? 101) - (b.rarity ?? 101));
+      return [{ key: "", items: lista }];
+    }
+    if (ordem === "data") {
+      const lista = [...achievements].sort((a, b) => {
+        if (a.done !== b.done) return a.done ? -1 : 1;
+        return (b.doneAt || "").localeCompare(a.doneAt || "");
+      });
+      return [{ key: "", items: lista }];
+    }
+    const order = [];
+    const map = {};
+    achievements.forEach((a) => {
+      const key = a.dlc || "";
+      if (!map[key]) {
+        map[key] = [];
+        order.push(key);
+      }
+      map[key].push(a);
+    });
+    order.sort((x, y) => (x === "" ? -1 : y === "" ? 1 : 0));
+    return order.map((key) => ({ key, items: map[key] }));
+  })();
+
+  const ordemBtn = (id, label) => (
+    <Chip key={id} active={ordem === id} onClick={() => setOrdem(id)} label={label} />
+  );
+
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: "16px" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "#1E1D26", borderRadius: "14px", padding: "22px", width: "100%", maxWidth: "460px", border: "1px solid #2E2C36", maxHeight: "85vh", overflowY: "auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "14px" }}>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
-              <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: platform.color, display: "inline-block" }} />
-              <span style={{ fontSize: "11px", color: "#9C9A93" }}>{platform.label}</span>
-              <span style={{ fontSize: "10px", color: status.color, fontWeight: 700, marginLeft: "4px" }}>{status.label}</span>
-            </div>
-            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "18px", margin: 0, fontWeight: 600 }}>{game.title}</h2>
-          </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#9C9A93", cursor: "pointer", padding: "2px" }}>
-            <X size={18} />
+    <div role="dialog" aria-modal="true" aria-label={game.title} style={{ position: "fixed", inset: 0, background: "#0E0E10", zIndex: 45, overflowY: "auto", color: "#F2F2EE", fontFamily: "'Archivo', sans-serif" }}>
+      <div className="detalhe-wrap">
+        <header className="placar-head">
+          <button onClick={onClose} className="placar-btn" style={{ background: "none", border: "none", color: "#A2A2A8", padding: 0 }}>
+            <ChevronLeft size={18} /> Biblioteca
           </button>
-        </div>
+          <span className="placar-marca so-desktop" style={{ fontSize: "26px" }}>Estante</span>
+          <button onClick={onEdit} className="placar-btn" style={{ background: "transparent", color: "#F2F2EE", border: "1px solid #3A3A40" }}>
+            <Pencil size={15} /> Editar
+          </button>
+        </header>
+
+        <section className="detalhe-topo">
+          <div className="detalhe-capa" style={{ position: "relative", aspectRatio: "2 / 3", background: "#1C1C20", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {game.cover && !imgFailed ? (
+              <img src={displayCoverUrl(game.cover)} alt={`Capa de ${game.title}`} onError={() => setImgFailed(true)} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+            ) : (
+              <Gamepad2 size={32} color="#55555C" />
+            )}
+            {is100 && (
+              <span style={{ position: "absolute", top: 0, left: 0, background: "#D7FF3A", color: "#0E0E10", fontSize: "14px", fontWeight: 900, fontStretch: "75%", padding: "6px 10px", letterSpacing: "0.04em" }}>100%</span>
+            )}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "24px", minWidth: 0 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              <span className="placar-label">
+                {platform.label} · <span style={{ color: status.color }}>{status.label}</span>
+                {game.completedAt && isCompletedStatus(game.status) && <> · concluído em {formatDate(game.completedAt)}</>}
+                {game.startedAt && game.status === "jogando" && <> · desde {formatDate(game.startedAt)}</>}
+              </span>
+              <h1 className="detalhe-titulo">{game.title}</h1>
+            </div>
+          </div>
+          <div className="detalhe-stats">
+            <div>
+              <span className="placar-label">Conquistas</span>
+              <span className="placar-num detalhe-num">
+                {achievements.length > 0 ? done : "—"}
+                {achievements.length > 0 && <span className="detalhe-num-sub"> / {achievements.length}</span>}
+              </span>
+            </div>
+            <div>
+              <span className="placar-label">Pontos</span>
+              <span className="placar-num detalhe-num">
+                {aggPoints.total > 0 ? aggPoints.earned.toLocaleString("pt-BR") : "—"}
+                {aggPoints.total > 0 && aggPoints.earned !== aggPoints.total && <span className="detalhe-num-sub"> / {aggPoints.total.toLocaleString("pt-BR")}</span>}
+              </span>
+            </div>
+            <div>
+              <span className="placar-label">{temRaridade ? `Raras · menos de ${RARA_PCT}%` : "Progresso"}</span>
+              <span className="placar-num detalhe-num" style={{ color: "#D7FF3A" }}>
+                {temRaridade ? rarasFeitas : pct !== null ? `${pct}%` : "—"}
+              </span>
+            </div>
+          </div>
+        </section>
+
+        {game.notes && (
+          <p style={{ fontSize: "14px", color: "#C8C8CE", lineHeight: 1.6, margin: "0 0 24px", maxWidth: "720px" }}>{game.notes}</p>
+        )}
 
         {achievements.length === 0 && aggPoints.total > 0 && (
-          <div style={{ background: "#8B7FD114", border: "1px solid #8B7FD140", borderRadius: "10px", padding: "10px 12px", marginBottom: "16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontSize: "11.5px", color: "#9C9A93" }}>Gamerscore (sem detalhamento por conquista)</span>
-            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "13px", fontWeight: 700, color: "#8B7FD1" }}>
-              {aggPoints.earned.toLocaleString("pt-BR")} / {aggPoints.total.toLocaleString("pt-BR")}
-            </span>
+          <p style={{ fontSize: "14px", color: "#A2A2A8", lineHeight: 1.6, margin: "0 0 24px" }}>
+            Só o total de pontos foi importado para este jogo. Sincronize com a Steam ou adicione as conquistas em "Gerenciar conquistas" para ver a lista.
+          </p>
+        )}
+
+        <div className="placar-filtros" style={{ marginBottom: "8px" }}>
+          <div className="placar-chips">
+            {achievements.length > 0 && ordemBtn("jogo", "Ordem do jogo")}
+            {achievements.length > 0 && temRaridade && ordemBtn("raras", "Mais raras primeiro")}
+            {achievements.length > 0 && ordemBtn("data", "Data de desbloqueio")}
           </div>
+          <Chip active={gerenciar} onClick={() => setGerenciar((g) => !g)} label="Gerenciar conquistas" />
+        </div>
+        {temRaridade && (
+          <p className="so-desktop" style={{ fontSize: "12px", color: "#8A8A90", margin: "0 0 8px" }}>
+            Raridade = % dos jogadores da Steam que têm a conquista.
+          </p>
+        )}
+
+        {achievements.length > 0 && (
+          <section style={{ display: "flex", flexDirection: "column", marginBottom: "32px" }}>
+            {grupos.map(({ key, items }) => {
+              const doneCount = items.filter((a) => a.done).length;
+              const isCollapsed = !!collapsedGroups[key];
+              return (
+                <div key={key || "__base__"}>
+                  {grupos.length > 1 && (
+                    <button
+                      onClick={() => setCollapsedGroups((s) => ({ ...s, [key]: !s[key] }))}
+                      aria-expanded={!isCollapsed}
+                      style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", background: "none", border: "none", borderBottom: "1px solid #2A2A2E", color: "#F2F2EE", padding: "18px 0 10px", cursor: "pointer", fontFamily: "inherit" }}
+                    >
+                      <span style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+                        <ChevronDown size={14} style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.15s ease" }} />
+                        {key || "Jogo base"}
+                      </span>
+                      <span style={{ fontSize: "13px", fontWeight: 700, color: "#A2A2A8" }}>{doneCount}/{items.length}</span>
+                    </button>
+                  )}
+                  {!isCollapsed && items.map((a, i) => (
+                    <div key={a.id} className="detalhe-linha" onClick={() => !gerenciar && onToggle(a.id)}>
+                      <span style={{ width: "100%", aspectRatio: "1", background: "#1C1C20", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                        {a.icon ? (
+                          <img src={a.icon} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: a.done ? 1 : 0.35, filter: a.done ? "none" : "grayscale(1)" }} />
+                        ) : (
+                          <span style={{ fontSize: "16px", fontWeight: 800, fontStretch: "70%", color: "#8A8A90" }}>{String(i + 1).padStart(2, "0")}</span>
+                        )}
+                      </span>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "4px", minWidth: 0 }}>
+                        <span style={{ fontSize: "16px", fontWeight: 700, fontStretch: "85%", color: a.done ? "#F2F2EE" : "#A2A2A8" }}>{a.name}</span>
+                        {a.description && <span style={{ fontSize: "13px", color: "#8A8A90", lineHeight: 1.4 }}>{a.description}</span>}
+                        {a.done && a.doneAt && <span style={{ fontSize: "12px", color: "#A2A2A8" }}>desbloqueada em {formatDate(a.doneAt)}</span>}
+                      </div>
+                      <div className="detalhe-raridade" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                        {typeof a.rarity === "number" && (
+                          <>
+                            <div style={{ flex: 1, height: "3px", background: "#2A2A2E" }}>
+                              <div style={{ width: `${Math.max(a.rarity, 1)}%`, height: "100%", background: a.rarity < RARA_PCT ? "#D7FF3A" : "#F2F2EE" }} />
+                            </div>
+                            <span style={{ fontSize: "13px", fontWeight: 700, width: "56px", textAlign: "right", color: a.rarity < RARA_PCT ? "#D7FF3A" : "#F2F2EE" }}>{formatPct(a.rarity)}</span>
+                          </>
+                        )}
+                      </div>
+                      <span className="detalhe-pontos" style={{ fontSize: "14px", fontWeight: 700, textAlign: "right", color: a.done ? "#F2F2EE" : "#8A8A90" }}>
+                        {a.points > 0 ? `${a.points} pts` : ""}
+                      </span>
+                      {gerenciar ? (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onRemove(a.id); }}
+                          style={{ ...iconBtnStyle, width: "44px", height: "44px", color: "#FF7A5C" }}
+                          aria-label={`Remover a conquista ${a.name}`}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onToggle(a.id); }}
+                          aria-pressed={a.done}
+                          aria-label={a.done ? `Desmarcar ${a.name}` : `Marcar ${a.name} como feita`}
+                          style={{ width: "44px", height: "44px", background: a.done ? "#D7FF3A" : "transparent", border: a.done ? "none" : "1px solid #3A3A40", color: "#0E0E10", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+                        >
+                          {a.done && <Check size={20} strokeWidth={3} />}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </section>
+        )}
+
+        {gerenciar && (
+          <section style={{ border: "1px solid #2A2A2E", padding: "20px", marginBottom: "32px", display: "flex", flexDirection: "column", gap: "18px" }}>
+            {achievements.length > 0 && (
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <button onClick={onCompleteAll} className="placar-btn" style={{ background: "#D7FF3A", color: "#0E0E10", border: "none" }}>Marcar todas como feitas</button>
+                <button onClick={onUncompleteAll} className="placar-btn" style={{ background: "transparent", color: "#F2F2EE", border: "1px solid #3A3A40" }}>Desmarcar todas</button>
+                <button
+                  onClick={() => {
+                    if (confirmDeleteAll) {
+                      onDeleteAll();
+                      setConfirmDeleteAll(false);
+                    } else {
+                      setConfirmDeleteAll(true);
+                      setTimeout(() => setConfirmDeleteAll(false), 3000);
+                    }
+                  }}
+                  className="placar-btn"
+                  style={{ background: confirmDeleteAll ? "#FF5A36" : "transparent", color: confirmDeleteAll ? "#0E0E10" : "#FF7A5C", border: "1px solid #FF5A36" }}
+                >
+                  {confirmDeleteAll ? "Clique de novo pra confirmar" : "Apagar todas"}
+                </button>
+              </div>
+            )}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <span className="placar-label">Adicionar uma conquista</span>
+              <input value={singleName} onChange={(e) => setSingleName(e.target.value)} placeholder="Nome da conquista" aria-label="Nome da conquista" style={inputStyle} />
+              <input value={singleDesc} onChange={(e) => setSingleDesc(e.target.value)} placeholder="Descrição (opcional)" aria-label="Descrição" style={inputStyle} />
+              <div style={{ display: "flex", gap: "8px" }}>
+                <input type="number" value={singlePoints} onChange={(e) => setSinglePoints(e.target.value)} placeholder="Pontos" aria-label="Pontos" style={{ ...inputStyle, width: "100px" }} />
+                <input
+                  value={singleDlc}
+                  onChange={(e) => setSingleDlc(e.target.value)}
+                  placeholder="DLC (opcional — em branco pro jogo base)"
+                  aria-label="DLC"
+                  list="dlc-options"
+                  style={{ ...inputStyle, flex: 1 }}
+                />
+                <datalist id="dlc-options">
+                  {dlcOptions.map((d) => <option key={d} value={d} />)}
+                </datalist>
+              </div>
+              <button onClick={submitSingle} disabled={!singleName.trim()} className="placar-btn" style={{ alignSelf: "flex-start", background: singleName.trim() ? "#D7FF3A" : "#2A2A2E", color: singleName.trim() ? "#0E0E10" : "#8A8A90", border: "none", cursor: singleName.trim() ? "pointer" : "default" }}>
+                Adicionar
+              </button>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <label htmlFor="ach-lote" className="placar-label">Adicionar várias</label>
+              <span style={{ fontSize: "12px", color: "#8A8A90", lineHeight: 1.5 }}>
+                Uma por linha: "Nome; Descrição; Pontos; DLC; Desbloqueada". Os quatro últimos são opcionais. No último, use uma data AAAA-MM-DD ou "sim" pra já marcar como feita.
+              </span>
+              <textarea
+                id="ach-lote"
+                value={achText}
+                onChange={(e) => setAchText(e.target.value)}
+                placeholder={"Primeiros passos; Complete o capítulo 1; 10;; sim\nMestre da espada;;;Expansão X;2024-03-12"}
+                rows={4}
+                style={{ ...inputStyle, resize: "vertical" }}
+              />
+              {achError && <p style={{ color: "#FF7A5C", fontSize: "12px", margin: 0 }}>{achError}</p>}
+              <button onClick={onAddBulk} className="placar-btn" style={{ alignSelf: "flex-start", background: "#D7FF3A", color: "#0E0E10", border: "none" }}>
+                Adicionar à lista
+              </button>
+            </div>
+          </section>
         )}
 
         {game.metadata?.source && (
-          <div style={{ background: "#15141B", border: "1px solid #2E2C36", borderRadius: "10px", padding: "12px", marginBottom: "16px" }}>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", fontSize: "11px", color: "#9C9A93", marginBottom: game.metadata.summary ? "8px" : 0 }}>
-              {game.metadata.releaseYear && <span><strong style={{ color: "#EDEAE0" }}>{game.metadata.releaseYear}</strong></span>}
+          <section style={{ borderTop: "1px solid #2A2A2E", paddingTop: "24px", marginBottom: "24px", display: "flex", flexDirection: "column", gap: "12px", maxWidth: "820px" }}>
+            <span className="placar-label">Sobre o jogo</span>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", fontSize: "13px", color: "#A2A2A8" }}>
+              {game.metadata.releaseYear && <strong style={{ color: "#F2F2EE" }}>{game.metadata.releaseYear}</strong>}
               {game.metadata.developer && <span>{game.metadata.developer}</span>}
-              {game.metadata.publisher && game.metadata.publisher !== game.metadata.developer && <span>· {game.metadata.publisher}</span>}
-              {typeof game.metadata.rating === "number" && (
-                <span style={{ color: "#E8A33D", fontFamily: "'JetBrains Mono', monospace" }}>★ {game.metadata.rating.toFixed(1)}</span>
-              )}
+              {game.metadata.publisher && game.metadata.publisher !== game.metadata.developer && <span>{game.metadata.publisher}</span>}
+              {typeof game.metadata.rating === "number" && <span>nota {game.metadata.rating.toFixed(1)}</span>}
+              {Array.isArray(game.metadata.genres) && game.metadata.genres.length > 0 && <span>{game.metadata.genres.join(" · ")}</span>}
             </div>
-            {Array.isArray(game.metadata.genres) && game.metadata.genres.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "5px", marginBottom: game.metadata.summary ? "8px" : 0 }}>
-                {game.metadata.genres.map((g) => (
-                  <span key={g} style={{ fontSize: "10px", color: "#8B7FD1", background: "#8B7FD11a", borderRadius: "10px", padding: "2px 8px" }}>{g}</span>
-                ))}
-              </div>
-            )}
-            {game.metadata.summary && (
-              <p style={{ fontSize: "11.5px", color: "#B7B4AB", lineHeight: 1.5, margin: 0 }}>{game.metadata.summary}</p>
-            )}
-          </div>
+            {game.metadata.summary && <p style={{ fontSize: "14px", color: "#C8C8CE", lineHeight: 1.6, margin: 0 }}>{game.metadata.summary}</p>}
+          </section>
         )}
 
         {Array.isArray(game.metadata?.screenshots) && game.metadata.screenshots.length > 0 && (
-          <div style={{ marginBottom: "16px" }}>
-            <span style={{ fontSize: "11px", fontWeight: 600, color: "#9C9A93", textTransform: "uppercase", letterSpacing: "0.04em", display: "block", marginBottom: "8px" }}>
-              Screenshots
-            </span>
-            <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "4px" }}>
-              {game.metadata.screenshots.map((url, i) => (
-                <img
-                  key={i}
-                  src={displayCoverUrl(url)}
-                  alt={`Screenshot ${i + 1} de ${game.title}`}
-                  onClick={() => setLightboxIndex(i)}
-                  loading="lazy"
-                  style={{ width: "120px", height: "68px", objectFit: "cover", borderRadius: "8px", border: "1px solid #2E2C36", cursor: "pointer", flexShrink: 0 }}
-                />
-              ))}
-            </div>
+          <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "4px" }}>
+            {game.metadata.screenshots.map((url, i) => (
+              <button key={i} onClick={() => setLightboxIndex(i)} aria-label={`Ampliar screenshot ${i + 1}`} style={{ padding: 0, border: "none", background: "none", cursor: "pointer", flexShrink: 0 }}>
+                <img src={displayCoverUrl(url)} alt="" loading="lazy" style={{ width: "200px", height: "112px", objectFit: "cover", display: "block" }} />
+              </button>
+            ))}
           </div>
         )}
 
         {lightboxIndex !== null && Array.isArray(game.metadata?.screenshots) && (
           <div
-            onClick={(e) => { e.stopPropagation(); setLightboxIndex(null); }}
-            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60, padding: "24px" }}
+            onClick={() => setLightboxIndex(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60, padding: "24px" }}
           >
-            <button
-              onClick={(e) => { e.stopPropagation(); setLightboxIndex(null); }}
-              style={{ position: "absolute", top: "18px", right: "18px", background: "#1E1D26", border: "1px solid #2E2C36", borderRadius: "8px", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", color: "#EDEAE0", cursor: "pointer" }}
-              aria-label="Fechar"
-            >
-              <X size={16} />
+            <button onClick={(e) => { e.stopPropagation(); setLightboxIndex(null); }} style={{ ...iconBtnStyle, position: "absolute", top: "18px", right: "18px", width: "44px", height: "44px" }} aria-label="Fechar">
+              <X size={18} />
             </button>
             {game.metadata.screenshots.length > 1 && (
               <button
                 onClick={(e) => { e.stopPropagation(); setLightboxIndex((i) => (i - 1 + game.metadata.screenshots.length) % game.metadata.screenshots.length); }}
-                style={{ position: "absolute", left: "18px", top: "50%", transform: "translateY(-50%)", background: "#1E1D26", border: "1px solid #2E2C36", borderRadius: "8px", width: "36px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", color: "#EDEAE0", cursor: "pointer", fontSize: "16px" }}
+                style={{ ...iconBtnStyle, position: "absolute", left: "18px", top: "50%", transform: "translateY(-50%)", width: "44px", height: "44px" }}
                 aria-label="Anterior"
               >
-                ‹
+                <ChevronLeft size={20} />
               </button>
             )}
             <img
               src={displayCoverUrl(game.metadata.screenshots[lightboxIndex])}
               alt={`Screenshot ${lightboxIndex + 1} de ${game.title}`}
               onClick={(e) => e.stopPropagation()}
-              style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: "10px", objectFit: "contain" }}
+              style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
             />
             {game.metadata.screenshots.length > 1 && (
               <button
                 onClick={(e) => { e.stopPropagation(); setLightboxIndex((i) => (i + 1) % game.metadata.screenshots.length); }}
-                style={{ position: "absolute", right: "18px", top: "50%", transform: "translateY(-50%)", background: "#1E1D26", border: "1px solid #2E2C36", borderRadius: "8px", width: "36px", height: "36px", display: "flex", alignItems: "center", justifyContent: "center", color: "#EDEAE0", cursor: "pointer", fontSize: "16px" }}
+                style={{ ...iconBtnStyle, position: "absolute", right: "18px", top: "50%", transform: "translateY(-50%)", width: "44px", height: "44px" }}
                 aria-label="Próximo"
               >
-                ›
+                <ChevronRight size={20} />
               </button>
             )}
           </div>
         )}
-
-
-        {achievements.length > 0 && (
-          <div style={{ marginBottom: "16px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#9C9A93", marginBottom: "6px" }}>
-              <span>Progresso</span>
-              <span style={{ fontFamily: "'JetBrains Mono', monospace", color: "#E8A33D" }}>{done}/{achievements.length} ({pct}%)</span>
-            </div>
-            <div style={{ height: "6px", background: "#15141B", borderRadius: "4px", overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${pct}%`, background: "#E8A33D", borderRadius: "4px", transition: "width 0.2s ease" }} />
-            </div>
-            {totalPoints > 0 && (
-              <div style={{ textAlign: "right", marginTop: "5px", fontFamily: "'JetBrains Mono', monospace", fontSize: "11px", color: "#8B7FD1" }}>
-                {earnedPoints.toLocaleString("pt-BR")} / {totalPoints.toLocaleString("pt-BR")} pts
-              </div>
-            )}
-            <div style={{ display: "flex", gap: "6px", marginTop: "10px" }}>
-              <button
-                onClick={onCompleteAll}
-                style={{ flex: 1, background: "#E8A33D22", border: "1px solid #E8A33D55", color: "#E8A33D", borderRadius: "6px", padding: "6px 10px", fontSize: "11px", fontWeight: 600, cursor: "pointer" }}
-              >
-                Marcar todas como feitas
-              </button>
-              <button
-                onClick={onUncompleteAll}
-                style={{ background: "none", border: "1px solid #2E2C36", color: "#8A8783", borderRadius: "6px", padding: "6px 10px", fontSize: "11px", cursor: "pointer" }}
-              >
-                Desmarcar todas
-              </button>
-            </div>
-            <button
-              onClick={() => {
-                if (confirmDeleteAll) {
-                  onDeleteAll();
-                  setConfirmDeleteAll(false);
-                } else {
-                  setConfirmDeleteAll(true);
-                  setTimeout(() => setConfirmDeleteAll(false), 3000);
-                }
-              }}
-              style={{
-                width: "100%", marginTop: "6px", background: confirmDeleteAll ? "#E4536B" : "none",
-                border: `1px solid ${confirmDeleteAll ? "#E4536B" : "#2E2C36"}`, color: confirmDeleteAll ? "#2A0F16" : "#6B6960",
-                borderRadius: "6px", padding: "6px 10px", fontSize: "11px", fontWeight: confirmDeleteAll ? 600 : 400, cursor: "pointer",
-              }}
-            >
-              {confirmDeleteAll ? "Clique de novo pra confirmar" : "Apagar todas as conquistas"}
-            </button>
-          </div>
-        )}
-
-        {achievements.length > 0 && (() => {
-          const groupOrder = [];
-          const groups = {};
-          achievements.forEach((a) => {
-            const key = a.dlc || "";
-            if (!groups[key]) {
-              groups[key] = [];
-              groupOrder.push(key);
-            }
-            groups[key].push(a);
-          });
-          // Base game (no dlc) always first, regardless of insertion order.
-          groupOrder.sort((x, y) => (x === "" ? -1 : y === "" ? 1 : 0));
-
-          return (
-            <div style={{ display: "flex", flexDirection: "column", gap: "14px", marginBottom: "16px" }}>
-              {groupOrder.map((key) => {
-                const items = groups[key];
-                const doneCount = items.filter((a) => a.done).length;
-                const isCollapsed = !!collapsedGroups[key];
-                return (
-                  <div key={key || "__base__"}>
-                    {groupOrder.length > 1 && (
-                      <div
-                        onClick={() => setCollapsedGroups((s) => ({ ...s, [key]: !s[key] }))}
-                        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px", cursor: "pointer", userSelect: "none" }}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-                          <ChevronDown
-                            size={11}
-                            color="#7B93A8"
-                            style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.15s ease", flexShrink: 0 }}
-                          />
-                          <span style={{ fontSize: "10.5px", fontWeight: 700, color: "#7B93A8", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                            {key || "Jogo base"}
-                          </span>
-                        </div>
-                        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "10px", color: "#6B6960" }}>{doneCount}/{items.length}</span>
-                      </div>
-                    )}
-                    {!isCollapsed && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                      {items.map((a) => (
-                        <div
-                          key={a.id}
-                          onClick={() => onToggle(a.id)}
-                          style={{ display: "flex", alignItems: "flex-start", gap: "9px", padding: "9px 10px", borderRadius: "8px", background: a.done ? "#E8A33D14" : "#15141B", border: `1px solid ${a.done ? "#E8A33D33" : "#2E2C36"}`, cursor: "pointer" }}
-                        >
-                          <div style={{ width: "16px", height: "16px", borderRadius: "4px", border: `1.5px solid ${a.done ? "#E8A33D" : "#4A4845"}`, background: a.done ? "#E8A33D" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: "1px" }}>
-                            {a.done && <CheckCircle2 size={11} color="#1A1A1A" />}
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "8px" }}>
-                              <span style={{ fontSize: "12.5px", fontWeight: 500, color: a.done ? "#EDEAE0" : "#C9C6BE" }}>{a.name}</span>
-                              {a.points > 0 && (
-                                <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "10px", color: "#8B7FD1", flexShrink: 0 }}>{a.points} pts</span>
-                              )}
-                            </div>
-                            {a.description && <div style={{ fontSize: "11px", color: "#8A8783", marginTop: "2px" }}>{a.description}</div>}
-                            {a.done && a.doneAt && (
-                              <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "10px", color: "#E8A33D99", marginTop: "3px" }}>
-                                feita em {formatDate(a.doneAt)}
-                              </div>
-                            )}
-                          </div>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); onRemove(a.id); }}
-                            style={{ background: "none", border: "none", color: "#6B6960", cursor: "pointer", padding: "2px", flexShrink: 0 }}
-                            aria-label="Remover conquista"
-                          >
-                            <X size={13} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })()}
-
-        <div style={{ borderTop: achievements.length > 0 ? "1px solid #2E2C36" : "none", paddingTop: achievements.length > 0 ? "14px" : 0 }}>
-          <button
-            onClick={() => setShowSingleForm((s) => !s)}
-            style={{ display: "flex", alignItems: "center", gap: "5px", background: "none", border: "none", color: "#8B7FD1", fontSize: "12px", fontWeight: 600, cursor: "pointer", padding: 0, marginBottom: showSingleForm ? "10px" : "14px" }}
-          >
-            <Plus size={13} /> Adicionar conquista individual
-          </button>
-
-          {showSingleForm && (
-            <div style={{ background: "#15141B", border: "1px solid #2E2C36", borderRadius: "8px", padding: "10px", marginBottom: "14px", display: "flex", flexDirection: "column", gap: "7px" }}>
-              <input
-                value={singleName}
-                onChange={(e) => setSingleName(e.target.value)}
-                placeholder="Nome da conquista"
-                style={{ ...inputStyle, fontSize: "12px", padding: "7px 9px" }}
-                autoFocus
-              />
-              <input
-                value={singleDesc}
-                onChange={(e) => setSingleDesc(e.target.value)}
-                placeholder="Descrição (opcional)"
-                style={{ ...inputStyle, fontSize: "12px", padding: "7px 9px" }}
-              />
-              <div style={{ display: "flex", gap: "7px" }}>
-                <input
-                  type="number"
-                  value={singlePoints}
-                  onChange={(e) => setSinglePoints(e.target.value)}
-                  placeholder="Pontos"
-                  style={{ ...inputStyle, fontSize: "12px", padding: "7px 9px", width: "80px" }}
-                />
-                <input
-                  value={singleDlc}
-                  onChange={(e) => setSingleDlc(e.target.value)}
-                  placeholder="DLC (opcional — deixa em branco pro jogo base)"
-                  list="dlc-options"
-                  style={{ ...inputStyle, fontSize: "12px", padding: "7px 9px", flex: 1 }}
-                />
-                <datalist id="dlc-options">
-                  {dlcOptions.map((d) => <option key={d} value={d} />)}
-                </datalist>
-              </div>
-              <button
-                onClick={submitSingle}
-                disabled={!singleName.trim()}
-                style={{ background: singleName.trim() ? "#E4536B" : "#3A3844", color: singleName.trim() ? "#2A0F16" : "#6B6960", border: "none", borderRadius: "6px", padding: "7px", fontSize: "12px", fontWeight: 600, cursor: singleName.trim() ? "pointer" : "default" }}
-              >
-                Adicionar
-              </button>
-            </div>
-          )}
-
-          <label style={{ display: "block", fontSize: "12px", color: "#9C9A93", marginBottom: "6px" }}>
-            Adicionar conquistas (uma por linha: "Nome; Descrição; Pontos; DLC; Desbloqueada" — os quatro últimos são opcionais. No último campo, use uma data AAAA-MM-DD ou "sim" pra já marcar como concluída)
-          </label>
-          <textarea
-            value={achText}
-            onChange={(e) => setAchText(e.target.value)}
-            placeholder={"Primeiros passos; Complete o capítulo 1; 10;; sim\nMestre da espada;;;Expansão X;2024-03-12"}
-            rows={3}
-            style={{ ...inputStyle, resize: "vertical", fontSize: "12px", marginBottom: "8px" }}
-          />
-          {achError && <p style={{ color: "#E4536B", fontSize: "12px", margin: "0 0 8px" }}>{achError}</p>}
-          <button
-            onClick={onAddBulk}
-            style={{ width: "100%", padding: "9px", borderRadius: "8px", border: "none", background: "#E4536B", color: "#2A0F16", cursor: "pointer", fontSize: "13px", fontWeight: 600 }}
-          >
-            Adicionar à lista
-          </button>
-        </div>
       </div>
     </div>
   );
 }
 
 const iconBtnStyle = {
-  background: "#15141Bcc", border: "1px solid #2E2C36", borderRadius: "6px", width: "24px", height: "24px", display: "flex", alignItems: "center", justifyContent: "center", color: "#EDEAE0", cursor: "pointer",
+  background: "#0E0E10e6", border: "1px solid #3A3A40", borderRadius: 0, width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", color: "#F2F2EE", cursor: "pointer",
 };
 
 function EmptyState({ hasGames, onAdd }) {
   return (
-    <div style={{ textAlign: "center", padding: "60px 20px", border: "1px dashed #2E2C36", borderRadius: "14px" }}>
-      <Gamepad2 size={28} color="#6B6960" style={{ marginBottom: "10px" }} />
-      <p style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: "15px", margin: "0 0 4px" }}>
+    <div style={{ textAlign: "center", padding: "60px 20px", border: "1px dashed #2A2A2E", borderRadius: 0 }}>
+      <Gamepad2 size={28} color="#8A8A90" style={{ marginBottom: "10px" }} />
+      <p style={{ fontFamily: "'Archivo', sans-serif", fontWeight: 600, fontSize: "15px", margin: "0 0 4px" }}>
         {hasGames ? "Nenhum jogo bate com esse filtro" : "A estante tá vazia"}
       </p>
-      <p style={{ fontSize: "12px", color: "#9C9A93", margin: "0 0 16px" }}>
+      <p style={{ fontSize: "12px", color: "#A2A2A8", margin: "0 0 16px" }}>
         {hasGames ? "Tenta limpar os filtros ou a busca." : "Comece adicionando o primeiro jogo que você zerou ou platinou."}
       </p>
       {!hasGames && (
-        <button onClick={onAdd} style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "#E4536B", color: "#2A0F16", border: "none", padding: "9px 14px", borderRadius: "8px", fontWeight: 600, fontSize: "13px", cursor: "pointer" }}>
+        <button onClick={onAdd} style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "#D7FF3A", color: "#0E0E10", border: "none", padding: "9px 14px", borderRadius: 0, fontWeight: 600, fontSize: "13px", cursor: "pointer" }}>
           <Plus size={15} /> Adicionar jogo
         </button>
       )}
