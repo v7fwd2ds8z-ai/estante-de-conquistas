@@ -92,11 +92,14 @@ const sbDeleteGame = async (accessToken, id) => {
   if (!res.ok) throw new Error(`Falha ao deletar jogo (${res.status})`);
 };
 
-const searchIgdb = async (title) => {
+// Resultados por página da busca no IGDB; "Buscar mais" pede a página seguinte com offset.
+const IGDB_PAGE = 10;
+
+const searchIgdb = async (title, offset = 0) => {
   const res = await fetch(IGDB_SEARCH_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ title }),
+    body: JSON.stringify({ title, limit: IGDB_PAGE, offset }),
   });
   const data = await res.json();
   if (!res.ok || data.error) throw new Error(data.error || `Busca no IGDB falhou (${res.status})`);
@@ -315,12 +318,22 @@ const IGDB_BOM_O_BASTANTE = 0.8;
 // Uma DLC com subtítulo ("Mass Effect 2: Arrival") fica em 0,75; a busca automática só aceita nome quase igual.
 const IGDB_ACEITA_AUTO = 0.8;
 
+const rankIgdb = (matches, title) =>
+  matches
+    .map((m) => ({ ...m, score: igdbMatchScore(m, title) }))
+    .sort((a, b) => b.score - a.score);
+
+// Devolve os resultados ordenados e a consulta que trouxe os primeiros resultados: é nela
+// que "Buscar mais" continua (a mais fiel ao título, não a mais solta).
 const searchIgdbFlex = async (title) => {
   const porId = new Map();
   let ultimoErro = null;
-  for (const consulta of igdbQueryVariants(title)) {
+  let consulta = null;
+  for (const variante of igdbQueryVariants(title)) {
     try {
-      (await searchIgdb(consulta)).forEach((m) => porId.set(m.id, m));
+      const achados = await searchIgdb(variante);
+      if (achados.length > 0 && !consulta) consulta = variante;
+      achados.forEach((m) => porId.set(m.id, m));
     } catch (e) {
       ultimoErro = e;
     }
@@ -328,10 +341,7 @@ const searchIgdbFlex = async (title) => {
     if (melhor >= IGDB_BOM_O_BASTANTE) break;
   }
   if (porId.size === 0 && ultimoErro) throw ultimoErro;
-  return Array.from(porId.values())
-    .map((m) => ({ m, score: igdbMatchScore(m, title) }))
-    .sort((a, b) => b.score - a.score)
-    .map(({ m, score }) => ({ ...m, score }));
+  return { matches: rankIgdb(Array.from(porId.values()), title), consulta };
 };
 
 // Converte uma linha do banco (snake_case) pro formato que o resto do app já usa (camelCase)
@@ -622,6 +632,8 @@ export default function AchievementShelf() {
   const [coverDragging, setCoverDragging] = useState(false);
   const [coverSearchBusy, setCoverSearchBusy] = useState(false);
   const [coverCandidates, setCoverCandidates] = useState([]);
+  const [coverMore, setCoverMore] = useState(null); // { consulta, offset, acabou } da última busca de capa
+  const [coverMoreBusy, setCoverMoreBusy] = useState(false);
   const [coverSearchError, setCoverSearchError] = useState("");
   const [showCoverBatch, setShowCoverBatch] = useState(false);
   const [coverQueue, setCoverQueue] = useState([]);
@@ -778,7 +790,7 @@ export default function AchievementShelf() {
     for (let i = 0; i < targets.length; i++) {
       const g = targets[i];
       try {
-        const matches = await searchIgdbFlex(g.title);
+        const { matches } = await searchIgdbFlex(g.title);
         // Sem dono pra conferir cada capa, só aplica quando o nome bate razoavelmente.
         if (matches.length > 0 && matches[0].score >= IGDB_ACEITA_AUTO) {
           const match = matches[0];
@@ -989,17 +1001,39 @@ export default function AchievementShelf() {
     setCoverSearchBusy(true);
     setCoverSearchError("");
     setCoverCandidates([]);
+    setCoverMore(null);
     try {
-      const matches = await searchIgdbFlex(form.title.trim());
+      const { matches, consulta } = await searchIgdbFlex(form.title.trim());
       if (matches.length === 0) {
         setCoverSearchError("Não encontrei esse jogo no IGDB. Tenta colar o link manualmente ou fazer upload.");
       } else {
         setCoverCandidates(matches);
+        setCoverMore({ consulta, offset: 0, acabou: false });
       }
     } catch (e) {
       setCoverSearchError("Não consegui buscar no IGDB agora. Tenta de novo em instantes.");
     } finally {
       setCoverSearchBusy(false);
+    }
+  };
+
+  // Próxima página da mesma consulta. Jogos com muita DLC (Batman: Arkham Knight, Mass Effect 2)
+  // enchem a primeira página com skins e expansões, e o jogo principal só vem depois.
+  const handleSearchMoreCovers = async () => {
+    if (!coverMore || coverMore.acabou || !coverMore.consulta) return;
+    setCoverMoreBusy(true);
+    setCoverSearchError("");
+    const offset = coverMore.offset + IGDB_PAGE;
+    try {
+      const achados = await searchIgdb(coverMore.consulta, offset);
+      const jaTem = new Set(coverCandidates.map((m) => m.id));
+      const novos = achados.filter((m) => !jaTem.has(m.id));
+      if (novos.length > 0) setCoverCandidates(rankIgdb([...coverCandidates, ...novos], form.title.trim()));
+      setCoverMore({ ...coverMore, offset, acabou: novos.length === 0 || achados.length < IGDB_PAGE });
+    } catch (e) {
+      setCoverSearchError("Não consegui buscar mais no IGDB agora. Tenta de novo em instantes.");
+    } finally {
+      setCoverMoreBusy(false);
     }
   };
 
@@ -2185,6 +2219,21 @@ export default function AchievementShelf() {
                       </button>
                     ))}
                   </div>
+                  {coverMore && coverMore.consulta && (
+                    coverMore.acabou ? (
+                      <p style={{ fontSize: "11px", color: "#8A8A90", margin: "8px 0 0" }}>O IGDB não tem mais resultados para essa busca.</p>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleSearchMoreCovers}
+                        disabled={coverMoreBusy}
+                        className="placar-btn"
+                        style={{ width: "100%", justifyContent: "center", marginTop: "8px", background: "transparent", color: coverMoreBusy ? "#8A8A90" : "#F2F2EE", border: "1px solid #3A3A40", cursor: coverMoreBusy ? "default" : "pointer" }}
+                      >
+                        <Search size={14} /> {coverMoreBusy ? "Buscando..." : "Buscar mais"}
+                      </button>
+                    )
+                  )}
                   <button
                     type="button"
                     onClick={() => setCoverCandidates([])}
