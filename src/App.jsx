@@ -286,7 +286,9 @@ const IGDB_NAO_JOGO = /\b(skin|skins|pack|dlc|soundtrack|season pass|costume|ste
 const igdbTitleForms = (title) => {
   const base = (title || "")
     .replace(/[™®©]/g, "")
-    .replace(/\s*\((?:ps\d|ps5pc|pc|xbox[^)]*|switch[^)]*|\d{4})\)/gi, " ")
+    // Qualquer coisa entre parênteses ou colchetes é anotação da loja ou da pessoa
+    // ("(PS5)", "(WP)", "[PC]", "(Windows 10)", "(2010)"), não faz parte do nome no IGDB.
+    .replace(/\s*[([][^)\]]*[)\]]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   const semEdicao = base.replace(IGDB_EDICAO, " ").replace(/\s+/g, " ").replace(/[\s:–-]+$/, "").trim();
@@ -321,10 +323,25 @@ const IGDB_BOM_O_BASTANTE = 0.8;
 // Uma DLC com subtítulo ("Mass Effect 2: Arrival") fica em 0,75; a busca automática só aceita nome quase igual.
 const IGDB_ACEITA_AUTO = 0.8;
 
-const rankIgdb = (matches, title) =>
-  matches
-    .map((m) => ({ ...m, score: igdbMatchScore(m, title) }))
-    .sort((a, b) => b.score - a.score);
+// Nome no IGDB = título + subtítulo ("Asphalt 8" → "Asphalt 8: Airborne"): aceita quando é o
+// único resultado assim e o IGDB o põe em primeiro. Com vários ("Halo" → "Halo: Reach",
+// "Halo: Combat Evolved") ou quando o IGDB prefere outro ("Wordament" → "Microsoft Wordament",
+// não "Wordament: Snap Attack"), não chuta.
+const igdbComSubtitulo = (match, title) => {
+  const simples = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/['’™®©]/g, "").replace(/\s+/g, " ").trim();
+  const alvo = simples(igdbTitleForms(title).semEdicao);
+  const nome = simples(match.name);
+  return alvo.length >= 3 && nome.startsWith(alvo + ":") && !IGDB_NAO_JOGO.test(match.name) && !!match.cover;
+};
+
+const rankIgdb = (matches, title) => {
+  const ranked = matches.map((m) => ({ ...m, score: igdbMatchScore(m, title) }));
+  const comSubtitulo = ranked.filter((m) => igdbComSubtitulo(m, title));
+  if (comSubtitulo.length === 1 && comSubtitulo[0].id === matches[0]?.id && !ranked.some((m) => m.score >= IGDB_ACEITA_AUTO)) {
+    comSubtitulo[0].score = Math.max(comSubtitulo[0].score, IGDB_ACEITA_AUTO);
+  }
+  return ranked.sort((a, b) => b.score - a.score);
+};
 
 // Devolve os resultados ordenados e a consulta que trouxe os primeiros resultados: é nela
 // que "Buscar mais" continua (a mais fiel ao título, não a mais solta).
