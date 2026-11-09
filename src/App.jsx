@@ -301,8 +301,11 @@ const igdbQueryVariants = (title) => {
 
 // 0 a 1: quanto o nome do IGDB bate com o título (palavras em comum), com bônus para nome
 // idêntico e desconto para DLC, skin e afins, que o IGDB costuma devolver antes do jogo.
+// "Alan Wake 2" e "Alan Wake II" são o mesmo jogo.
+const IGDB_ROMANOS = { ii: "2", iii: "3", iv: "4", v: "5", vi: "6", vii: "7", viii: "8", ix: "9", x: "10", xi: "11", xii: "12", xiii: "13", xiv: "14", xv: "15", xvi: "16" };
+
 const igdbMatchScore = (match, title) => {
-  const palavras = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/['’™®©]/g, "").split(/[^a-z0-9]+/).filter(Boolean);
+  const palavras = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/['’™®©]/g, "").split(/[^a-z0-9]+/).filter(Boolean).map((p) => IGDB_ROMANOS[p] || p);
   const alvo = palavras(igdbTitleForms(title).semEdicao || title);
   const nome = palavras(match.name);
   if (alvo.length === 0 || nome.length === 0) return 0;
@@ -455,6 +458,31 @@ const displayCoverUrl = (cover) => {
   if (!cover.startsWith("http")) return cover; // data:, blob:, vazio etc — usa direto
   const stripped = cover.replace(/^https:\/\//, "ssl:").replace(/^http:\/\//, "");
   return `https://images.weserv.nl/?url=${stripped}`;
+};
+
+// Confere se a capa realmente abre (pelo mesmo proxy que o app usa pra mostrar). A Steam
+// não tem library_600x900.jpg no endereço antigo para vários jogos mais novos, então o jogo
+// fica com uma capa que dá 404 e a busca automática precisa tratá-lo como "sem capa".
+const imagemCarrega = (url, ms = 10000) =>
+  new Promise((resolve) => {
+    const img = new Image();
+    const timer = setTimeout(() => { img.src = ""; resolve(false); }, ms);
+    img.onload = () => { clearTimeout(timer); resolve(img.naturalWidth > 1); };
+    img.onerror = () => { clearTimeout(timer); resolve(false); };
+    img.src = displayCoverUrl(url);
+  });
+
+const capasQueNaoAbrem = async (lista) => {
+  const quebradas = new Set();
+  const fila = lista.filter((g) => typeof g.cover === "string" && g.cover.startsWith("http"));
+  const trabalhador = async () => {
+    while (fila.length > 0) {
+      const g = fila.shift();
+      if (!(await imagemCarrega(g.cover))) quebradas.add(g.id);
+    }
+  };
+  await Promise.all(Array.from({ length: 12 }, trabalhador));
+  return quebradas;
 };
 
 const normalizeForMatch = (s) =>
@@ -657,6 +685,8 @@ export default function AchievementShelf() {
   const [autoCoverBusy, setAutoCoverBusy] = useState(false);
   const [autoCoverDone, setAutoCoverDone] = useState(false);
   const [autoCoverProgress, setAutoCoverProgress] = useState({ current: 0, total: 0, found: 0, notFound: 0 });
+  const [capasQuebradas, setCapasQuebradas] = useState(() => new Set());
+  const [conferindoCapas, setConferindoCapas] = useState(false);
   const [showSteam, setShowSteam] = useState(false);
   const [steamProfile, setSteamProfile] = useState(() => {
     try {
@@ -778,8 +808,22 @@ export default function AchievementShelf() {
   // aplica direto a opção mais parecida com o título, sem precisar escolher
   // manualmente jogo por jogo. Processa em sequência (não em paralelo) pra não
   // sobrecarregar a Edge Function/Twitch de uma vez, e salva tudo num upsert só no final.
+  const semCapa = (g) => !g.cover || capasQuebradas.has(g.id);
+  const alvosAutoCover = games.filter(semCapa);
+
+  const openAutoCover = async () => {
+    setShowAutoCover(true);
+    setShowToolsMenu(false);
+    setConferindoCapas(true);
+    try {
+      setCapasQuebradas(await capasQueNaoAbrem(games));
+    } finally {
+      setConferindoCapas(false);
+    }
+  };
+
   const runAutoCoverSearch = async () => {
-    const targets = games.filter((g) => !g.cover);
+    const targets = alvosAutoCover;
     if (targets.length === 0) return;
 
     setAutoCoverBusy(true);
@@ -1710,9 +1754,9 @@ export default function AchievementShelf() {
                     <Images size={15} /> Várias capas
                   </button>
                   <button
-                    onClick={() => { setShowAutoCover(true); setShowToolsMenu(false); }}
-                    disabled={games.filter((g) => !g.cover).length === 0}
-                    title="Busca automaticamente no IGDB e aplica a opção mais parecida pra cada jogo sem capa"
+                    onClick={openAutoCover}
+                    disabled={games.length === 0}
+                    title="Busca automaticamente no IGDB e aplica a opção mais parecida pra cada jogo sem capa ou com capa que não abre"
                   >
                     <Search size={15} /> Buscar capas automáticas
                   </button>
@@ -1980,13 +2024,20 @@ export default function AchievementShelf() {
             {!autoCoverBusy && !autoCoverDone && (
               <>
                 <p style={{ fontSize: "12.5px", color: "#A2A2A8", lineHeight: 1.5, margin: "0 0 16px" }}>
-                  Isso vai buscar no IGDB pelo título de cada um dos <strong style={{ color: "#F2F2EE" }}>{games.filter((g) => !g.cover).length} jogos sem capa</strong> e aplicar automaticamente a opção mais parecida com o título (capa + ano, gêneros, desenvolvedora, nota e sinopse). Se alguma vier errada, você pode corrigir manualmente depois editando o jogo.
+                  {conferindoCapas ? (
+                    "Conferindo quais capas abrem…"
+                  ) : (
+                    <>
+                      Isso vai buscar no IGDB pelo título de cada um dos <strong style={{ color: "#F2F2EE" }}>{alvosAutoCover.length} jogos sem capa ou com capa que não abre</strong> e aplicar automaticamente a opção mais parecida com o título (capa + ano, gêneros, desenvolvedora, nota e sinopse). Se alguma vier errada, você pode corrigir manualmente depois editando o jogo.
+                    </>
+                  )}
                 </p>
                 <button
                   onClick={runAutoCoverSearch}
-                  style={{ width: "100%", padding: "10px", borderRadius: 0, border: "none", background: "#D7FF3A", color: "#0E0E10", cursor: "pointer", fontSize: "13px", fontWeight: 600 }}
+                  disabled={conferindoCapas || alvosAutoCover.length === 0}
+                  style={{ width: "100%", padding: "10px", borderRadius: 0, border: "none", background: "#D7FF3A", color: "#0E0E10", cursor: conferindoCapas || alvosAutoCover.length === 0 ? "default" : "pointer", opacity: conferindoCapas || alvosAutoCover.length === 0 ? 0.5 : 1, fontSize: "13px", fontWeight: 600 }}
                 >
-                  Iniciar busca ({games.filter((g) => !g.cover).length} jogos)
+                  {conferindoCapas ? "Conferindo…" : `Iniciar busca (${alvosAutoCover.length} jogos)`}
                 </button>
               </>
             )}
