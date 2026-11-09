@@ -274,6 +274,66 @@ const applySteamSync = (plan, achievementsByAppid, { addNew, now }) => {
   return { toSave, added, updated, newlyDone };
 };
 
+// Busca no IGDB tolerante ao jeito como os títulos chegam das lojas ("Grand Theft Auto V Legacy",
+// "Destiny 2 (PS5)", "Batman™: Arkham Knight"). O IGDB não acha nada quando sobra palavra,
+// então tenta variações do título, da mais fiel à mais solta, e ordena o que vier por semelhança.
+const IGDB_EDICAO = /\b(legacy|complete|definitive|ultimate|deluxe|standard|gold|premium|enhanced|special|anniversary|collector'?s|digital|launch|director'?s cut|game of the year|goty|remastered|edition|edição)\b/gi;
+const IGDB_NAO_JOGO = /\b(skin|skins|pack|dlc|soundtrack|season pass|costume|steelbook|bundle|expansion pass|upgrade)\b/i;
+
+const igdbTitleForms = (title) => {
+  const base = (title || "")
+    .replace(/[™®©]/g, "")
+    .replace(/\s*\((?:ps\d|ps5pc|pc|xbox[^)]*|switch[^)]*|\d{4})\)/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const semEdicao = base.replace(IGDB_EDICAO, " ").replace(/\s+/g, " ").replace(/[\s:–-]+$/, "").trim();
+  const principal = semEdicao.split(/\s*:\s*|\s+[-–]\s+/)[0].trim();
+  return { base, semEdicao, principal };
+};
+
+const igdbQueryVariants = (title) => {
+  const { base, semEdicao, principal } = igdbTitleForms(title);
+  return [...new Set([base, semEdicao, principal])].filter((v) => v.length >= 2);
+};
+
+// 0 a 1: quanto o nome do IGDB bate com o título (palavras em comum), com bônus para nome
+// idêntico e desconto para DLC, skin e afins, que o IGDB costuma devolver antes do jogo.
+const igdbMatchScore = (match, title) => {
+  const palavras = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/['’™®©]/g, "").split(/[^a-z0-9]+/).filter(Boolean);
+  const alvo = palavras(igdbTitleForms(title).semEdicao || title);
+  const nome = palavras(match.name);
+  if (alvo.length === 0 || nome.length === 0) return 0;
+  const comum = alvo.filter((p) => nome.includes(p)).length;
+  let score = comum / Math.max(alvo.length, nome.length);
+  if (alvo.join(" ") === nome.join(" ")) score += 0.5;
+  if (IGDB_NAO_JOGO.test(match.name) && !IGDB_NAO_JOGO.test(title)) score -= 0.5;
+  if (!match.cover) score -= 0.2;
+  return score;
+};
+
+const IGDB_BOM_O_BASTANTE = 0.8;
+// Uma DLC com subtítulo ("Mass Effect 2: Arrival") fica em 0,75; a busca automática só aceita nome quase igual.
+const IGDB_ACEITA_AUTO = 0.8;
+
+const searchIgdbFlex = async (title) => {
+  const porId = new Map();
+  let ultimoErro = null;
+  for (const consulta of igdbQueryVariants(title)) {
+    try {
+      (await searchIgdb(consulta)).forEach((m) => porId.set(m.id, m));
+    } catch (e) {
+      ultimoErro = e;
+    }
+    const melhor = Math.max(-1, ...Array.from(porId.values()).map((m) => igdbMatchScore(m, title)));
+    if (melhor >= IGDB_BOM_O_BASTANTE) break;
+  }
+  if (porId.size === 0 && ultimoErro) throw ultimoErro;
+  return Array.from(porId.values())
+    .map((m) => ({ m, score: igdbMatchScore(m, title) }))
+    .sort((a, b) => b.score - a.score)
+    .map(({ m, score }) => ({ ...m, score }));
+};
+
 // Converte uma linha do banco (snake_case) pro formato que o resto do app já usa (camelCase)
 const rowToGame = (row) => ({
   id: row.id,
@@ -703,7 +763,7 @@ export default function AchievementShelf() {
   };
 
   // Busca automática de capa/metadata no IGDB pra jogos que ainda não têm capa —
-  // aplica direto a primeira opção retornada pra cada um, sem precisar escolher
+  // aplica direto a opção mais parecida com o título, sem precisar escolher
   // manualmente jogo por jogo. Processa em sequência (não em paralelo) pra não
   // sobrecarregar a Edge Function/Twitch de uma vez, e salva tudo num upsert só no final.
   const runAutoCoverSearch = async () => {
@@ -718,8 +778,9 @@ export default function AchievementShelf() {
     for (let i = 0; i < targets.length; i++) {
       const g = targets[i];
       try {
-        const matches = await searchIgdb(g.title);
-        if (matches.length > 0) {
+        const matches = await searchIgdbFlex(g.title);
+        // Sem dono pra conferir cada capa, só aplica quando o nome bate razoavelmente.
+        if (matches.length > 0 && matches[0].score >= IGDB_ACEITA_AUTO) {
           const match = matches[0];
           updated.push({
             ...g,
@@ -929,7 +990,7 @@ export default function AchievementShelf() {
     setCoverSearchError("");
     setCoverCandidates([]);
     try {
-      const matches = await searchIgdb(form.title.trim());
+      const matches = await searchIgdbFlex(form.title.trim());
       if (matches.length === 0) {
         setCoverSearchError("Não encontrei esse jogo no IGDB. Tenta colar o link manualmente ou fazer upload.");
       } else {
@@ -1617,7 +1678,7 @@ export default function AchievementShelf() {
                   <button
                     onClick={() => { setShowAutoCover(true); setShowToolsMenu(false); }}
                     disabled={games.filter((g) => !g.cover).length === 0}
-                    title="Busca automaticamente no IGDB e aplica a primeira opção encontrada pra cada jogo sem capa"
+                    title="Busca automaticamente no IGDB e aplica a opção mais parecida pra cada jogo sem capa"
                   >
                     <Search size={15} /> Buscar capas automáticas
                   </button>
@@ -1885,7 +1946,7 @@ export default function AchievementShelf() {
             {!autoCoverBusy && !autoCoverDone && (
               <>
                 <p style={{ fontSize: "12.5px", color: "#A2A2A8", lineHeight: 1.5, margin: "0 0 16px" }}>
-                  Isso vai buscar no IGDB pelo título de cada um dos <strong style={{ color: "#F2F2EE" }}>{games.filter((g) => !g.cover).length} jogos sem capa</strong> e aplicar automaticamente a primeira opção encontrada (capa + ano, gêneros, desenvolvedora, nota e sinopse). Se alguma vier errada, você pode corrigir manualmente depois editando o jogo.
+                  Isso vai buscar no IGDB pelo título de cada um dos <strong style={{ color: "#F2F2EE" }}>{games.filter((g) => !g.cover).length} jogos sem capa</strong> e aplicar automaticamente a opção mais parecida com o título (capa + ano, gêneros, desenvolvedora, nota e sinopse). Se alguma vier errada, você pode corrigir manualmente depois editando o jogo.
                 </p>
                 <button
                   onClick={runAutoCoverSearch}
