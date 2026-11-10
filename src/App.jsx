@@ -452,6 +452,42 @@ const gamePoints = (game) => {
 // Percentual de conquistas de um jogo (pelos pontos); null quando o jogo não tem conquistas.
 const PCT_MINIMO_NO_TOTAL = 10;
 
+// Números do placar para uma lista de jogos (todos, ou só os de uma plataforma).
+// O "Conquistado %" ignora jogos só começados (menos de PCT_MINIMO_NO_TOTAL% dos pontos),
+// para não puxar a média para baixo por jogos que mal foram abertos.
+const resumoPlacar = (lista) => {
+  const r = {
+    jogos: lista.length, com100: 0, zerados: 0, jogando: 0,
+    totalEarned: 0, totalPossible: 0, pctEarned: 0, pctPossible: 0, foraDoPct: 0,
+    conqFeitas: 0, conqTotal: 0, jogosComPontos: 0, jogosDetalhados: 0, byPlatform: {},
+  };
+  lista.forEach((g) => {
+    if (g.status === "100") r.com100++;
+    if (g.status === "zerado") r.zerados++;
+    if (g.status === "jogando") r.jogando++;
+    (g.achievements || []).forEach((a) => {
+      r.conqTotal++;
+      if (a.done) r.conqFeitas++;
+    });
+    const { earned, total: possible } = gamePoints(g);
+    if (possible === 0) return;
+    r.jogosComPontos++;
+    if ((g.achievements || []).length > 0) r.jogosDetalhados++;
+    r.totalEarned += earned;
+    r.totalPossible += possible;
+    if (earned / possible < PCT_MINIMO_NO_TOTAL / 100) r.foraDoPct++;
+    else {
+      r.pctEarned += earned;
+      r.pctPossible += possible;
+    }
+    const fam = platformFamily(g.platform);
+    if (!r.byPlatform[fam]) r.byPlatform[fam] = { earned: 0, possible: 0 };
+    r.byPlatform[fam].earned += earned;
+    r.byPlatform[fam].possible += possible;
+  });
+  return r;
+};
+
 const gamePct = (game) => {
   const { earned, total } = gamePoints(game);
   return total > 0 ? Math.floor((earned / total) * 100) : null;
@@ -1614,31 +1650,23 @@ export default function AchievementShelf() {
     return c;
   }, [games]);
 
-  const pointsStats = useMemo(() => {
-    let totalEarned = 0;
-    let totalPossible = 0;
-    // O "Conquistado %" ignora jogos só começados (menos de PCT_MINIMO_NO_TOTAL% dos pontos),
-    // para não puxar a média para baixo por jogos que mal foram abertos.
-    let pctEarned = 0;
-    let pctPossible = 0;
-    let foraDoPct = 0;
-    const byPlatform = {};
+  // Os botões de status contam só a plataforma escolhida, como o placar.
+  const statusCounts = useMemo(() => {
+    const c = {};
     games.forEach((g) => {
-      const { earned, total: possible } = gamePoints(g);
-      if (possible === 0) return;
-      totalEarned += earned;
-      totalPossible += possible;
-      if (earned / possible < PCT_MINIMO_NO_TOTAL / 100) foraDoPct++;
-      else {
-        pctEarned += earned;
-        pctPossible += possible;
-      }
-      if (!byPlatform[platformFamily(g.platform)]) byPlatform[platformFamily(g.platform)] = { earned: 0, possible: 0 };
-      byPlatform[platformFamily(g.platform)].earned += earned;
-      byPlatform[platformFamily(g.platform)].possible += possible;
+      if (filterPlatform !== "all" && platformFamily(g.platform) !== filterPlatform) return;
+      c[g.status] = (c[g.status] || 0) + 1;
     });
-    return { totalEarned, totalPossible, pctEarned, pctPossible, foraDoPct, byPlatform };
-  }, [games]);
+    return c;
+  }, [games, filterPlatform]);
+
+  const pointsStats = useMemo(() => resumoPlacar(games), [games]);
+  // Com uma plataforma escolhida no filtro, o placar mostra só os números dela.
+  const placar = useMemo(
+    () => (filterPlatform === "all" ? pointsStats : resumoPlacar(games.filter((g) => platformFamily(g.platform) === filterPlatform))),
+    [games, filterPlatform, pointsStats],
+  );
+  const plataformaDoPlacar = FILTER_PLATFORMS.find((p) => p.id === filterPlatform) || null;
 
   if (sessionChecking) {
     return (
@@ -1697,7 +1725,7 @@ export default function AchievementShelf() {
     );
   }
 
-  const pctConquistado = pointsStats.pctPossible > 0 ? (pointsStats.pctEarned / pointsStats.pctPossible) * 100 : 0;
+  const pctConquistado = placar.pctPossible > 0 ? (placar.pctEarned / placar.pctPossible) * 100 : 0;
   const platformCounts = games.reduce((acc, g) => {
     const fam = platformFamily(g.platform);
     acc[fam] = (acc[fam] || 0) + 1;
@@ -1816,34 +1844,56 @@ export default function AchievementShelf() {
       ) : (
         <>
           {/* Placar */}
+          {plataformaDoPlacar && (
+            <div className="placar-escopo">
+              <span style={{ width: "12px", height: "12px", background: plataformaDoPlacar.color, flexShrink: 0 }} />
+              <span className="placar-escopo-nome">{plataformaDoPlacar.label}</span>
+              <button type="button" onClick={() => setFilterPlatform("all")} className="placar-escopo-voltar">
+                <X size={14} /> Todas as plataformas
+              </button>
+            </div>
+          )}
           <section className="placar-hero">
             <div>
-              <span className="placar-label">Pontos</span>
-              <span className="placar-num placar-num-grande">{pointsStats.totalEarned.toLocaleString("pt-BR")}</span>
+              <span className="placar-label">{plataformaDoPlacar?.id === "xbox" ? "Gamerscore" : "Pontos"}</span>
+              <span className="placar-num placar-num-grande">{placar.totalEarned.toLocaleString("pt-BR")}</span>
               <span style={{ fontSize: "13px", color: "#A2A2A8" }}>
-                de {pointsStats.totalPossible.toLocaleString("pt-BR")} possíveis
-                {FILTER_PLATFORMS.filter((p) => pointsStats.byPlatform[p.id]).map((p) => (
-                  <span key={p.id} className="so-desktop"> · {p.label} {pointsStats.byPlatform[p.id].earned.toLocaleString("pt-BR")}</span>
-                ))}
+                de {placar.totalPossible.toLocaleString("pt-BR")} possíveis
+                {plataformaDoPlacar
+                  ? // Só conta conquistas quando quase todo jogo tem a lista; no Xbox e no PlayStation
+                    // a maioria só tem o total de pontos, e a contagem ficaria enganosa.
+                    placar.conqTotal > 0 && placar.jogosDetalhados >= placar.jogosComPontos * 0.8 && (
+                      <span className="so-desktop"> · {placar.conqFeitas.toLocaleString("pt-BR")} de {placar.conqTotal.toLocaleString("pt-BR")} conquistas</span>
+                    )
+                  : FILTER_PLATFORMS.filter((p) => placar.byPlatform[p.id]).map((p) => (
+                      <span key={p.id} className="so-desktop">
+                        {" · "}
+                        <button type="button" onClick={() => setFilterPlatform(p.id)} className="placar-plataforma-link" title={`Ver o placar de ${p.label}`}>
+                          {p.label} {placar.byPlatform[p.id].earned.toLocaleString("pt-BR")}
+                        </button>
+                      </span>
+                    ))}
               </span>
             </div>
             <div>
               <span className="placar-label">Jogos</span>
-              <span className="placar-num">{counts.total}</span>
+              <span className="placar-num">{placar.jogos}</span>
+              {plataformaDoPlacar && (placar.jogando > 0 || placar.zerados > 0) && (
+                <span className="placar-sub">
+                  {[placar.jogando > 0 && `${placar.jogando} jogando`, placar.zerados > 0 && `${placar.zerados} ${placar.zerados === 1 ? "zerado" : "zerados"}`].filter(Boolean).join(" · ")}
+                </span>
+              )}
             </div>
             <div>
               <span className="placar-label">Com 100%</span>
-              <span className="placar-num" style={{ color: "#D7FF3A" }}>{counts["100"] || 0}</span>
+              <span className="placar-num" style={{ color: "#D7FF3A" }}>{placar.com100}</span>
             </div>
             <div>
               <span className="placar-label">Conquistado</span>
-              <span className="placar-num">{pctConquistado.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%</span>
-              {pointsStats.foraDoPct > 0 && (
-                <span
-                  style={{ display: "block", marginTop: "4px", fontSize: "11.5px", color: "#A2A2A8" }}
-                  title={`Jogos com menos de ${PCT_MINIMO_NO_TOTAL}% dos pontos não entram nessa porcentagem`}
-                >
-                  sem {pointsStats.foraDoPct} {pointsStats.foraDoPct === 1 ? "jogo" : "jogos"} abaixo de {PCT_MINIMO_NO_TOTAL}%
+              <span className="placar-num">{placar.pctPossible > 0 ? `${pctConquistado.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%` : "—"}</span>
+              {placar.foraDoPct > 0 && (
+                <span className="placar-sub" title={`Jogos com menos de ${PCT_MINIMO_NO_TOTAL}% dos pontos não entram nessa porcentagem`}>
+                  sem {placar.foraDoPct} {placar.foraDoPct === 1 ? "jogo" : "jogos"} abaixo de {PCT_MINIMO_NO_TOTAL}%
                 </span>
               )}
             </div>
@@ -1860,7 +1910,7 @@ export default function AchievementShelf() {
             <div className="placar-chips">
               <Chip active={filterStatus === "all"} onClick={() => setFilterStatus("all")} label="Todos os status" />
               {STATUSES.map((s) => (
-                <Chip key={s.id} active={filterStatus === s.id} onClick={() => setFilterStatus(s.id)} label={s.label} count={counts[s.id] || 0} />
+                <Chip key={s.id} active={filterStatus === s.id} onClick={() => setFilterStatus(s.id)} label={s.label} count={statusCounts[s.id] || 0} />
               ))}
             </div>
             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -2500,6 +2550,13 @@ const PLACAR_CSS = `
   .placar-hero > div { padding: 24px; border-left: 1px solid #2A2A2E; display: flex; flex-direction: column; justify-content: flex-end; gap: 10px; min-width: 0; }
   .placar-hero > div:first-child { border-left: none; padding-left: 0; }
   .placar-hero > div:last-child { padding-right: 0; }
+  .placar-sub { display: block; margin-top: 4px; font-size: 11.5px; color: #A2A2A8; }
+  .placar-escopo { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .placar-escopo-nome { font-weight: 800; font-stretch: 75%; font-size: 22px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .placar-escopo-voltar { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; background: transparent; border: 1px solid #3A3A40; color: #A2A2A8; font-family: inherit; font-size: 12px; font-weight: 600; padding: 6px 10px; cursor: pointer; }
+  .placar-escopo-voltar:hover { color: #F2F2EE; border-color: #A2A2A8; }
+  .placar-plataforma-link { background: none; border: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-decoration: underline; text-decoration-color: #3A3A40; text-underline-offset: 3px; }
+  .placar-plataforma-link:hover { color: #F2F2EE; text-decoration-color: #D7FF3A; }
   .placar-label { font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #A2A2A8; }
   .placar-num { font-weight: 800; font-stretch: 68%; line-height: 0.9; font-size: clamp(40px, 5vw, 64px); }
   .placar-num-grande { font-size: clamp(64px, 8.4vw, 112px); letter-spacing: -0.01em; }

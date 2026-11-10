@@ -63,6 +63,7 @@ Repositório: `v7fwd2ds8z-ai/estante-de-conquistas` (usuário do GitHub: `v7fwd2
 ## Convenções de código
 - Visual "Placar": fundo `#0E0E10`, superfície `#16161A`, linhas `#2A2A2E`, texto `#F2F2EE`, texto secundário `#A2A2A8`, um único destaque verde-limão `#D7FF3A` (texto escuro sobre ele) e vermelho `#FF5A36` só para erro e exclusão. Fonte única Archivo (eixo de largura: números e títulos condensados com `font-stretch`), números tabulares, cantos retos. Mockups de referência no canvas https://claude.ai/artifact/L7BUhLyeogtxMsJRNDMmv1.
 - Estilos inline no JSX; o que precisa de `:hover` ou `@media` (celular até 720px) fica na constante `PLACAR_CSS`, em classes `placar-*`, `cart-*` e `detalhe-*`. Estilo inline vence classe: para esconder no celular algo que tem `display` inline, use `!important`.
+- O placar do topo vem de `resumoPlacar(lista)`. Com uma plataforma no filtro, ele mostra só os números dela (Xbox vira "Gamerscore"; a contagem de conquistas só aparece quando ≥ 80% dos jogos com pontos têm a lista detalhada), e os botões de status contam só aquela plataforma.
 - O detalhe do jogo (`DetailModal`) é uma tela inteira, com ordenação por jogo/raridade/data e o modo "Gerenciar conquistas" (marcar todas, apagar, adicionar).
 - Ícones: `lucide-react`. Se usar um ícone novo, confira se está no import da linha 2 de `src/App.jsx`.
 - Textos da interface em português do Brasil.
