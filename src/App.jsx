@@ -102,6 +102,39 @@ const gravarDoUsuario = (base, accessToken, valor) => {
   }
 };
 
+// Login social (Google, Microsoft). O Supabase volta para o site com a sessão no hash
+// (#access_token=...&refresh_token=...) ou com o erro (#error_description=...).
+const LOGIN_SOCIAL = [
+  { id: "google", label: "Continuar com Google" },
+  { id: "azure", label: "Continuar com Microsoft", scopes: "email" },
+];
+
+const urlLoginSocial = (provedor) => {
+  const volta = `${window.location.origin}${window.location.pathname}`;
+  const params = new URLSearchParams({ provider: provedor.id, redirect_to: volta });
+  if (provedor.scopes) params.set("scopes", provedor.scopes);
+  return `${SUPABASE_URL}/auth/v1/authorize?${params.toString()}`;
+};
+
+const lerRetornoLoginSocial = () => {
+  const hash = window.location.hash.replace(/^#/, "");
+  if (!/(^|&)(access_token|error)=/.test(hash)) return null;
+  const p = new URLSearchParams(hash);
+  // Tira os tokens da barra de endereço (e do histórico) logo que lê.
+  window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+  if (p.get("error")) return { erro: p.get("error_description") || p.get("error") };
+  const expiresIn = Number(p.get("expires_in")) || 3600;
+  return {
+    sessao: {
+      access_token: p.get("access_token"),
+      refresh_token: p.get("refresh_token"),
+      token_type: p.get("token_type") || "bearer",
+      expires_in: expiresIn,
+      expiresAt: Date.now() + expiresIn * 1000,
+    },
+  };
+};
+
 const sbFetchGames = async (accessToken) => {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/games?select=*`, {
     headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${accessToken}` },
@@ -814,6 +847,16 @@ export default function AchievementShelf() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const retorno = lerRetornoLoginSocial();
+      if (retorno?.sessao?.access_token) {
+        saveSessionToStorage(retorno.sessao);
+        if (!cancelled) {
+          setSession(retorno.sessao);
+          setSessionChecking(false);
+        }
+        return;
+      }
+      if (retorno?.erro && !cancelled) setLoginError(`Não deu para entrar: ${retorno.erro}`);
       const saved = loadSessionFromStorage();
       if (!saved) {
         if (!cancelled) setSessionChecking(false);
@@ -1723,6 +1766,33 @@ export default function AchievementShelf() {
           <div style={{ display: "flex", flexDirection: "column", gap: "14px", paddingBottom: "24px", borderBottom: "1px solid #2A2A2E" }}>
             <span className="placar-marca" style={{ fontSize: "clamp(72px, 22vw, 104px)", lineHeight: 0.85 }}>Estante</span>
             <span style={{ fontSize: "14px", color: "#A2A2A8", lineHeight: 1.5 }}>Seus jogos e conquistas num placar só.</span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            {LOGIN_SOCIAL.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className="placar-btn"
+                onClick={() => {
+                  if (window.location.protocol === "file:") {
+                    setLoginError("Para entrar com Google ou Microsoft, abra a estante pelo site.");
+                    return;
+                  }
+                  window.location.href = urlLoginSocial(p);
+                }}
+                style={{ height: "52px", justifyContent: "center", border: "1px solid #3A3A40", background: "transparent", color: "#F2F2EE", cursor: "pointer", fontSize: "14px", fontWeight: 700 }}
+              >
+                {p.label}
+              </button>
+            ))}
+            <span style={{ fontSize: "12.5px", color: "#A2A2A8", lineHeight: 1.5 }}>
+              Primeira vez? Entrar com Google ou Microsoft já cria a sua estante.
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", color: "#A2A2A8", fontSize: "12px", fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+            <span style={{ flex: 1, height: "1px", background: "#2A2A2E" }} />
+            ou com e-mail e senha
+            <span style={{ flex: 1, height: "1px", background: "#2A2A2E" }} />
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             <label htmlFor="login-email" className="placar-label">E-mail</label>
