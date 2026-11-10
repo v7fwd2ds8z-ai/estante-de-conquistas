@@ -29,12 +29,12 @@ Repositório: `v7fwd2ds8z-ai/estante-de-conquistas` (usuário do GitHub: `v7fwd2
   - Tabela `games` com colunas snake_case (`completed_at`, `gamerscore_earned`, `gamerscore_total`...). `gameToRow` converte do app para a linha.
   - Cada jogo tem dono: `user_id` (default `auth.uid()`), chave primária `(user_id, id)`. RLS: cada usuário só lê, cria, altera e apaga os próprios jogos; anon não vê nada (`supabase/migrations/20261110_dono_dos_jogos.sql`). O app manda `user_id` (o `sub` do token, `jwtSub`) e faz upsert com `on_conflict=user_id,id`.
   - Preferências locais por usuário (`lerDoUsuario`/`gravarDoUsuario`: chave + `_<user_id>`), como o perfil da Steam.
-  - O Lucas tem duas contas no projeto: a pessoal (dona dos jogos da estante) e a da RPLK (do simulador). A tabela `empreendimentos` (RPLK) tem leitura pública e gravação só por essas duas contas. Não escreva e-mails neste repositório, que é público.
+  - Hoje a única conta é a pessoal do Lucas, dona de todos os jogos. Não escreva e-mails neste repositório, que é público.
   - Sessão em `localStorage` (`estante_conquistas_session`), renovada a cada 30 minutos.
 - **IGDB** (capas, metadados, screenshots) pela Edge Function `hyper-api` (código em `supabase/functions/hyper-api/index.ts`; secrets `IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET` da Twitch). Exige login (confere o token em `/auth/v1/user`, como a `steam-sync`); o app manda o token da sessão (`igdbAccessToken`). Aceita `limit`/`offset` e filtra só jogos principais (`game_type`), caindo para a busca sem filtro se a primeira página vier vazia. No app, `searchIgdbFlex` tenta variações do título (sem ™, sem nada entre parênteses ou colchetes como "(WP)" e "(PS5)", sem palavras de edição) e ordena por `igdbMatchScore`; `rankIgdb` aceita título + subtítulo ("Asphalt 8" → "Asphalt 8: Airborne") só quando é o único assim e o primeiro do IGDB; a nota trata numerais romanos como números ("Alan Wake 2" = "Alan Wake II"); a busca automática de capas só aplica com nota ≥ `IGDB_ACEITA_AUTO` e, ao abrir, confere quais capas abrem (`capasQueNaoAbrem`): jogo com capa quebrada conta como sem capa (a capa `library_600x900.jpg` da Steam dá 404 em vários jogos novos, como RuneScape: Dragonwilds); o formulário tem "Buscar mais" (próxima página da mesma consulta).
 - **Steam** pela Edge Function `steam-sync` (código em `supabase/functions/steam-sync/index.ts`, publicada no Supabase à parte do deploy do Pages). Detalhes em "Sincronização da Steam".
 - Imagens passam pelo proxy `images.weserv.nl` (`displayCoverUrl`).
-- **CLI do Supabase** (instalado via Homebrew, logado na conta do Lucas). O projeto da estante é o `ixwxxgrwafglumgelapt`, que no painel se chama `rplk-simulador-de-fluxo`; a conta também tem o projeto `Vistoria`, que não é deste app. Sempre passe `--remote=ixwxxgrwafglumgelapt`.
+- **CLI do Supabase** (instalado via Homebrew, logado na conta do Lucas). O projeto da estante é o `ixwxxgrwafglumgelapt`, que no painel ainda se chama `rplk-simulador-de-fluxo` (nome antigo, de quando dividia o projeto com a RPLK); a conta também tem o projeto `Vistoria`, que não é deste app. Sempre passe `--remote=ixwxxgrwafglumgelapt`.
   - Publicar função: `supabase functions deploy <nome> --remote=ixwxxgrwafglumgelapt` (a partir da pasta do repositório).
   - Consultar o banco: `supabase db query --remote=ixwxxgrwafglumgelapt --read-only "<sql>"`. Para alterar (sem `--read-only`, com `--yes`), peça o ok do Lucas antes.
   - Logs das funções: `supabase logs --remote=ixwxxgrwafglumgelapt --service functions --since 1h --output-format json` (ou `--service function-edge` para status HTTP).
@@ -53,7 +53,7 @@ Repositório: `v7fwd2ds8z-ai/estante-de-conquistas` (usuário do GitHub: `v7fwd2
 ## Segurança — importante
 - A chave `anon` pode ficar no código do cliente.
 - A chave `service_role` **nunca** vai no código. Só existe nos Secrets do GitHub Actions do repositório `manter-supabase` (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`).
-- O mesmo projeto Supabase também atende o simulador de pagamento da RPLK. Desde a fase 1 das contas (nov/2026), os jogos são isolados por dono e a RPLK só aceita gravação das duas contas do Lucas. Separar em projetos próprios esbarra no limite de 2 projetos gratuitos.
+- O projeto Supabase é só da estante. Até nov/2026 ele também guardava a tabela `empreendimentos` do simulador da RPLK, que foi para o projeto da Vistoria (`supabase/migrations/20261110_tira_rplk.sql`).
 - Contas abertas ao público (fases 2 a 4: cadastro com confirmação de e-mail e captcha, página por usuário, excluir conta) ainda não foram feitas. O cadastro do Supabase está ligado, mas o e-mail padrão só envia para a equipe, então desconhecidos não conseguem confirmar a conta.
 
 ## Modelo de dados
