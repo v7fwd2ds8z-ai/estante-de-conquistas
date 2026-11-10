@@ -104,6 +104,9 @@ const gravarDoUsuario = (base, accessToken, valor) => {
 
 // Login social (Google, Microsoft). O Supabase volta para o site com a sessão no hash
 // (#access_token=...&refresh_token=...) ou com o erro (#error_description=...).
+// Desligado até as credenciais OAuth estarem cadastradas no Supabase: com false, a tela de
+// login mostra só e-mail e senha.
+const LOGIN_SOCIAL_ATIVO = false;
 const LOGIN_SOCIAL = [
   { id: "google", label: "Continuar com Google" },
   { id: "azure", label: "Continuar com Microsoft", scopes: "email" },
@@ -1767,6 +1770,8 @@ export default function AchievementShelf() {
             <span className="placar-marca" style={{ fontSize: "clamp(72px, 22vw, 104px)", lineHeight: 0.85 }}>Estante</span>
             <span style={{ fontSize: "14px", color: "#A2A2A8", lineHeight: 1.5 }}>Seus jogos e conquistas num placar só.</span>
           </div>
+          {LOGIN_SOCIAL_ATIVO && (
+            <>
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             {LOGIN_SOCIAL.map((p) => (
               <button
@@ -1794,6 +1799,8 @@ export default function AchievementShelf() {
             ou com e-mail e senha
             <span style={{ flex: 1, height: "1px", background: "#2A2A2E" }} />
           </div>
+            </>
+          )}
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             <label htmlFor="login-email" className="placar-label">E-mail</label>
             <input
