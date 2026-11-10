@@ -450,6 +450,8 @@ const gamePoints = (game) => {
 };
 
 // Percentual de conquistas de um jogo (pelos pontos); null quando o jogo não tem conquistas.
+const PCT_MINIMO_NO_TOTAL = 10;
+
 const gamePct = (game) => {
   const { earned, total } = gamePoints(game);
   return total > 0 ? Math.floor((earned / total) * 100) : null;
@@ -1615,17 +1617,27 @@ export default function AchievementShelf() {
   const pointsStats = useMemo(() => {
     let totalEarned = 0;
     let totalPossible = 0;
+    // O "Conquistado %" ignora jogos só começados (menos de PCT_MINIMO_NO_TOTAL% dos pontos),
+    // para não puxar a média para baixo por jogos que mal foram abertos.
+    let pctEarned = 0;
+    let pctPossible = 0;
+    let foraDoPct = 0;
     const byPlatform = {};
     games.forEach((g) => {
       const { earned, total: possible } = gamePoints(g);
       if (possible === 0) return;
       totalEarned += earned;
       totalPossible += possible;
+      if (earned / possible < PCT_MINIMO_NO_TOTAL / 100) foraDoPct++;
+      else {
+        pctEarned += earned;
+        pctPossible += possible;
+      }
       if (!byPlatform[platformFamily(g.platform)]) byPlatform[platformFamily(g.platform)] = { earned: 0, possible: 0 };
       byPlatform[platformFamily(g.platform)].earned += earned;
       byPlatform[platformFamily(g.platform)].possible += possible;
     });
-    return { totalEarned, totalPossible, byPlatform };
+    return { totalEarned, totalPossible, pctEarned, pctPossible, foraDoPct, byPlatform };
   }, [games]);
 
   if (sessionChecking) {
@@ -1685,7 +1697,7 @@ export default function AchievementShelf() {
     );
   }
 
-  const pctConquistado = pointsStats.totalPossible > 0 ? (pointsStats.totalEarned / pointsStats.totalPossible) * 100 : 0;
+  const pctConquistado = pointsStats.pctPossible > 0 ? (pointsStats.pctEarned / pointsStats.pctPossible) * 100 : 0;
   const platformCounts = games.reduce((acc, g) => {
     const fam = platformFamily(g.platform);
     acc[fam] = (acc[fam] || 0) + 1;
@@ -1826,6 +1838,14 @@ export default function AchievementShelf() {
             <div>
               <span className="placar-label">Conquistado</span>
               <span className="placar-num">{pctConquistado.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%</span>
+              {pointsStats.foraDoPct > 0 && (
+                <span
+                  style={{ display: "block", marginTop: "4px", fontSize: "11.5px", color: "#A2A2A8" }}
+                  title={`Jogos com menos de ${PCT_MINIMO_NO_TOTAL}% dos pontos não entram nessa porcentagem`}
+                >
+                  sem {pointsStats.foraDoPct} {pointsStats.foraDoPct === 1 ? "jogo" : "jogos"} abaixo de {PCT_MINIMO_NO_TOTAL}%
+                </span>
+              )}
             </div>
           </section>
 
