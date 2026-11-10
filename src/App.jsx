@@ -59,6 +59,49 @@ const sbAuthRefresh = async (refreshToken) => {
   return { ...data, expiresAt: Date.now() + (data.expires_in || 3600) * 1000 };
 };
 
+// Dono dos dados = "sub" do token da sessão. O banco também preenche e confere o user_id
+// (default auth.uid() + RLS), então isso aqui é só para o upsert achar a linha certa.
+const jwtSub = (accessToken) => {
+  try {
+    const payload = accessToken.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(atob(payload)).sub || "";
+  } catch (e) {
+    return "";
+  }
+};
+
+// Preferências locais (perfil da Steam, última sincronização) ficam separadas por usuário,
+// para quem entrar depois no mesmo navegador não herdar as do anterior.
+const lerDoUsuario = (base, accessToken) => {
+  try {
+    const sub = jwtSub(accessToken);
+    if (!sub) return "";
+    const chave = `${base}_${sub}`;
+    let valor = localStorage.getItem(chave);
+    if (valor === null) {
+      // Valor salvo antes de existir separação por usuário: passa para quem entrar primeiro.
+      const antigo = localStorage.getItem(base);
+      if (antigo !== null) {
+        localStorage.setItem(chave, antigo);
+        localStorage.removeItem(base);
+        valor = antigo;
+      }
+    }
+    return valor || "";
+  } catch (e) {
+    return "";
+  }
+};
+
+const gravarDoUsuario = (base, accessToken, valor) => {
+  try {
+    const sub = jwtSub(accessToken);
+    if (sub) localStorage.setItem(`${base}_${sub}`, valor);
+  } catch (e) {
+    // sem localStorage, só não lembra
+  }
+};
+
 const sbFetchGames = async (accessToken) => {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/games?select=*`, {
     headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${accessToken}` },
@@ -68,7 +111,8 @@ const sbFetchGames = async (accessToken) => {
 };
 
 const sbUpsertGames = async (accessToken, rows) => {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/games`, {
+  const userId = jwtSub(accessToken);
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/games?on_conflict=user_id,id`, {
     method: "POST",
     headers: {
       apikey: SUPABASE_ANON_KEY,
@@ -76,7 +120,7 @@ const sbUpsertGames = async (accessToken, rows) => {
       "Content-Type": "application/json",
       Prefer: "resolution=merge-duplicates,return=minimal",
     },
-    body: JSON.stringify(rows),
+    body: JSON.stringify(rows.map((r) => ({ ...r, user_id: userId }))),
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -85,7 +129,7 @@ const sbUpsertGames = async (accessToken, rows) => {
 };
 
 const sbDeleteGame = async (accessToken, id) => {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/games?id=eq.${encodeURIComponent(id)}`, {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/games?user_id=eq.${encodeURIComponent(jwtSub(accessToken))}&id=eq.${encodeURIComponent(id)}`, {
     method: "DELETE",
     headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${accessToken}` },
   });
@@ -95,10 +139,14 @@ const sbDeleteGame = async (accessToken, id) => {
 // Resultados por página da busca no IGDB; "Buscar mais" pede a página seguinte com offset.
 const IGDB_PAGE = 10;
 
+// A hyper-api só atende quem está logado (para ninguém gastar a cota do IGDB com a chave
+// pública do app). O componente atualiza este token sempre que a sessão muda.
+let igdbAccessToken = "";
+
 const searchIgdb = async (title, offset = 0) => {
   const res = await fetch(IGDB_SEARCH_URL, {
     method: "POST",
-    headers: { Authorization: `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${igdbAccessToken || SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({ title, limit: IGDB_PAGE, offset }),
   });
   const data = await res.json();
@@ -743,13 +791,7 @@ export default function AchievementShelf() {
   const [capasQuebradas, setCapasQuebradas] = useState(() => new Set());
   const [conferindoCapas, setConferindoCapas] = useState(false);
   const [showSteam, setShowSteam] = useState(false);
-  const [steamProfile, setSteamProfile] = useState(() => {
-    try {
-      return localStorage.getItem(STEAM_PROFILE_STORAGE_KEY) || "";
-    } catch (e) {
-      return "";
-    }
-  });
+  const [steamProfile, setSteamProfile] = useState("");
   const [steamStage, setSteamStage] = useState("idle"); // idle | lendo | previa | sincronizando | pronto
   const [steamOwned, setSteamOwned] = useState(null);
   const [steamAddNew, setSteamAddNew] = useState(true);
@@ -758,6 +800,14 @@ export default function AchievementShelf() {
   const [steamError, setSteamError] = useState("");
   const [steamNotice, setSteamNotice] = useState(null);
   const steamAutoRanRef = useRef(false);
+  const sessionUserId = session ? jwtSub(session.access_token) : "";
+  useEffect(() => {
+    igdbAccessToken = session?.access_token || "";
+  }, [session?.access_token]);
+  useEffect(() => {
+    setSteamProfile(sessionUserId ? lerDoUsuario(STEAM_PROFILE_STORAGE_KEY, session.access_token) : "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionUserId]);
 
   // Ao abrir a página, confere se a sessão salva ainda é válida (ou renova ela)
   // antes de decidir se mostra a tela de login ou já entra direto.
@@ -959,11 +1009,7 @@ export default function AchievementShelf() {
     }
     const result = applySteamSync(plan, byAppid, { addNew, now: Date.now() });
     const ok = result.toSave.length > 0 ? await saveGames(result.toSave) : true;
-    try {
-      localStorage.setItem(STEAM_LAST_SYNC_STORAGE_KEY, String(Date.now()));
-    } catch (e) {
-      // sem localStorage a sincronização automática só roda de novo na próxima abertura
-    }
+    gravarDoUsuario(STEAM_LAST_SYNC_STORAGE_KEY, session.access_token, String(Date.now()));
     return { added: result.added, updated: result.updated, newlyDone: result.newlyDone, failed, ok };
   };
 
@@ -990,11 +1036,7 @@ export default function AchievementShelf() {
     setSteamError("");
     try {
       const owned = await callSteamSync(session.access_token, { action: "owned", profile });
-      try {
-        localStorage.setItem(STEAM_PROFILE_STORAGE_KEY, profile);
-      } catch (e) {
-        // tudo bem, só não lembra o perfil na próxima vez
-      }
+      gravarDoUsuario(STEAM_PROFILE_STORAGE_KEY, session.access_token, profile);
       setSteamOwned(owned);
       setSteamStage("previa");
     } catch (e) {
@@ -1018,14 +1060,8 @@ export default function AchievementShelf() {
   useEffect(() => {
     if (loading || !session || steamAutoRanRef.current) return;
     steamAutoRanRef.current = true;
-    let profile = "";
-    let last = 0;
-    try {
-      profile = localStorage.getItem(STEAM_PROFILE_STORAGE_KEY) || "";
-      last = Number(localStorage.getItem(STEAM_LAST_SYNC_STORAGE_KEY)) || 0;
-    } catch (e) {
-      return;
-    }
+    const profile = lerDoUsuario(STEAM_PROFILE_STORAGE_KEY, session.access_token);
+    const last = Number(lerDoUsuario(STEAM_LAST_SYNC_STORAGE_KEY, session.access_token)) || 0;
     if (!profile || Date.now() - last < STEAM_AUTO_SYNC_MS) return;
     (async () => {
       try {
@@ -1269,6 +1305,9 @@ export default function AchievementShelf() {
     clearSessionFromStorage();
     setSession(null);
     setGames([]);
+    setSteamProfile("");
+    setCapasQuebradas(new Set());
+    steamAutoRanRef.current = false;
     setLoginEmail("");
     setLoginPassword("");
   };

@@ -6,6 +6,8 @@
 //   IGDB_CLIENT_ID
 //   IGDB_CLIENT_SECRET
 //
+// Exige o token da sessão de um usuário logado (a chave anon é recusada com 401).
+//
 // Chamada esperada pelo app (POST):
 //   { "title": "Hollow Knight", "limit": 10, "offset": 0 }
 //   limit (1 a 50, padrão 10) e offset (padrão 0) são opcionais; "Buscar mais" no app
@@ -62,6 +64,17 @@ function igdbImageUrl(imageId: string, size = "t_cover_big"): string {
   return `https://images.igdb.com/igdb/image/upload/${size}/${imageId}.jpg`;
 }
 
+// O "Verify JWT" do Supabase também deixa passar a chave anon (que é pública, está no app).
+// Para só quem está logado gastar a cota do IGDB, confere o token no Auth.
+const isLoggedUser = async (req: Request) => {
+  const auth = req.headers.get("Authorization") || "";
+  if (!auth.startsWith("Bearer ")) return false;
+  const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/auth/v1/user`, {
+    headers: { Authorization: auth, apikey: Deno.env.get("SUPABASE_ANON_KEY") || "" },
+  });
+  return res.ok;
+};
+
 const inteiroEntre = (valor: unknown, min: number, max: number, padrao: number) => {
   const n = Math.floor(Number(valor));
   return Number.isFinite(n) ? Math.min(Math.max(n, min), max) : padrao;
@@ -70,6 +83,13 @@ const inteiroEntre = (valor: unknown, min: number, max: number, padrao: number) 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
+  }
+
+  if (!(await isLoggedUser(req))) {
+    return new Response(JSON.stringify({ error: "Sessão expirada. Entre de novo no app." }), {
+      status: 401,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 
   try {
